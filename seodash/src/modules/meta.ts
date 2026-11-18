@@ -8,11 +8,11 @@
  * the site's main social profiles (Settings → SEO and Settings → Social). SEOdash reads those and
  * only asks for them itself where the host does not expose them (the marketplace sandbox).
  */
-import { formBlock, type FormSpec, readForm } from "../admin/forms.js";
+import { formBlock, type FormSpec, readForm, textField, toggleField } from "../admin/forms.js";
 import { type AdvancedSettings, buildHead, type CollectionTitles, type Identity, type SocialSettings, type TitlesSettings } from "../core/head.js";
 import { defineSection, merge } from "../core/settings.js";
 import { VARIABLE_HELP, type VariableContext, renderTemplate } from "../core/variables.js";
-import { type Block, type CoreSite, type Ctx, type EntryView, type Env, type Module, ok } from "../kit.js";
+import { type Block, type CoreSite, type Ctx, type EntryView, type Env, type Module, ok, note } from "../kit.js";
 
 export const DEFAULT_COLLECTION_TITLES: CollectionTitles = { title: "", description: "", noindex: false, nofollow: false };
 
@@ -184,35 +184,35 @@ const VARIABLES: Block = {
 const HOME: FormSpec = {
 	id: "meta:home",
 	fields: [
-		{ kind: "text", key: "homeTitle", label: "Home page title", placeholder: "%%sitetitle%% %%sep%% %%tagline%%" },
-		{ kind: "text", key: "homeDescription", label: "Home page description", multiline: true },
+		textField("homeTitle", "Home page title", { placeholder: "%%sitetitle%% %%sep%% %%tagline%%" }),
+		textField("homeDescription", "Home page description", { multiline: true }),
 	],
 };
 
 const ROBOTS: FormSpec = {
 	id: "meta:robots",
 	fields: [
-		{ kind: "toggle", key: "nofollow", label: "Ask search engines not to follow links (nofollow)" },
-		{ kind: "toggle", key: "noimageindex", label: "Ask search engines not to index images (noimageindex)" },
-		{ kind: "toggle", key: "nosnippet", label: "Ask search engines not to show text snippets (nosnippet)" },
+		toggleField("nofollow", "Ask search engines not to follow links (nofollow)"),
+		toggleField("noimageindex", "Ask search engines not to index images (noimageindex)"),
+		toggleField("nosnippet", "Ask search engines not to show text snippets (nosnippet)"),
 	],
 };
 
 const collectionForm = (slug: string): FormSpec => ({
 	id: `meta:collection/${slug}`,
 	fields: [
-		{ kind: "text", key: "title", label: "Title template", placeholder: "%%post_title%% %%sep%% %%sitetitle%%" },
-		{ kind: "text", key: "description", label: "Description template", placeholder: "%%post_excerpt%%", multiline: true },
-		{ kind: "toggle", key: "noindex", label: "Hide these entries from search engines (noindex)", description: "EmDash's sitemap still lists them. To leave an entry out of the sitemap too, hide it in its own SEO settings." },
-		{ kind: "toggle", key: "nofollow", label: "Ask search engines not to follow their links (nofollow)" },
+		textField("title", "Title template", { placeholder: "%%post_title%% %%sep%% %%sitetitle%%" }),
+		textField("description", "Description template", { placeholder: "%%post_excerpt%%", multiline: true }),
+		toggleField("noindex", "Hide these entries from search engines (noindex)", { description: "EmDash's sitemap still lists them. To leave an entry out of the sitemap too, hide it in its own SEO settings." }),
+		toggleField("nofollow", "Ask search engines not to follow their links (nofollow)"),
 	],
 });
 
 const SHARING: FormSpec = {
 	id: "meta:sharing",
 	fields: [
-		{ kind: "toggle", key: "ogEnabled", label: "Add to the Open Graph tags", description: "EmDash prints basic sharing tags either way. These add what is set per entry, such as its sharing title and image." },
-		{ kind: "toggle", key: "twitterEnabled", label: "Add to the X (Twitter) card tags" },
+		toggleField("ogEnabled", "Add to the Open Graph tags", { description: "EmDash prints basic sharing tags either way. These add what is set per entry, such as its sharing title and image." }),
+		toggleField("twitterEnabled", "Add to the X (Twitter) card tags"),
 		{
 			kind: "select",
 			key: "twitterCard",
@@ -222,27 +222,27 @@ const SHARING: FormSpec = {
 				{ label: "Small image", value: "summary" },
 			],
 		},
-		{ kind: "toggle", key: "creditProfiles", label: "Credit the site's profiles on shared links", description: "Adds the X handle (twitter:site) and the Facebook page (article:publisher). Leave off if the site's templates already print them." },
-		{ kind: "text", key: "fbAppId", label: "Facebook app ID" },
-		{ kind: "text", key: "fbPages", label: "Facebook page ID (link ownership)" },
+		toggleField("creditProfiles", "Credit the site's profiles on shared links", { description: "Adds the X handle (twitter:site) and the Facebook page (article:publisher). Leave off if the site's templates already print them." }),
+		textField("fbAppId", "Facebook app ID"),
+		textField("fbPages", "Facebook page ID (link ownership)"),
 	],
 };
 
 const PROFILES: FormSpec = {
 	id: "meta:profiles",
 	fields: [
-		{ kind: "text", key: "pinterest", label: "Pinterest URL" },
-		{ kind: "text", key: "extra", label: "Other profile URLs (one per line)", multiline: true },
+		textField("pinterest", "Pinterest URL"),
+		textField("extra", "Other profile URLs (one per line)", { multiline: true }),
 	],
 };
 
 const VERIFICATION: FormSpec = {
 	id: "meta:verification",
 	fields: [
-		{ kind: "text", key: "pinterest", label: "Pinterest" },
-		{ kind: "text", key: "yandex", label: "Yandex" },
-		{ kind: "text", key: "baidu", label: "Baidu" },
-		{ kind: "toggle", key: "dublinCore", label: "Dublin Core tags", description: "Extra title, description and language tags read by some libraries and archives." },
+		textField("pinterest", "Pinterest"),
+		textField("yandex", "Yandex"),
+		textField("baidu", "Baidu"),
+		toggleField("dublinCore", "Dublin Core tags", { description: "Extra title, description and language tags read by some libraries and archives." }),
 	],
 };
 
@@ -250,15 +250,15 @@ const VERIFICATION: FormSpec = {
 const FALLBACK: FormSpec = {
 	id: "meta:site",
 	fields: [
-		{ kind: "text", key: "separator", label: "Title separator", placeholder: "-" },
-		{ kind: "text", key: "defaultImage", label: "Default sharing image URL" },
-		{ kind: "text", key: "google", label: "Google Search Console verification code" },
-		{ kind: "text", key: "bing", label: "Bing Webmaster Tools verification code" },
-		{ kind: "text", key: "twitter", label: "X (Twitter) profile URL" },
-		{ kind: "text", key: "facebook", label: "Facebook page URL" },
-		{ kind: "text", key: "instagram", label: "Instagram URL" },
-		{ kind: "text", key: "linkedin", label: "LinkedIn URL" },
-		{ kind: "text", key: "youtube", label: "YouTube URL" },
+		textField("separator", "Title separator", { placeholder: "-" }),
+		textField("defaultImage", "Default sharing image URL"),
+		textField("google", "Google Search Console verification code"),
+		textField("bing", "Bing Webmaster Tools verification code"),
+		textField("twitter", "X (Twitter) profile URL"),
+		textField("facebook", "Facebook page URL"),
+		textField("instagram", "Instagram URL"),
+		textField("linkedin", "LinkedIn URL"),
+		textField("youtube", "YouTube URL"),
 	],
 };
 
@@ -284,7 +284,7 @@ function coreFields(core: CoreSite, which: "titles" | "social" | "verification")
 						{ label: "Google Search Console", value: core.googleVerification ? "Set" : "Not set" },
 						{ label: "Bing Webmaster Tools", value: core.bingVerification ? "Set" : "Not set" },
 					];
-	return [{ type: "fields", fields }, { type: "context", text: "These come from EmDash's own settings (Settings → SEO and Settings → Social). Change them there." }];
+	return [{ type: "fields", fields }, note("These come from EmDash's own settings (Settings → SEO and Settings → Social). Change them there.")];
 }
 
 /** The collections whose entries are pages of the site. */
@@ -305,7 +305,7 @@ export const meta: Module = {
 			async render(ctx) {
 				const titles = await titlesSection.load(ctx.settings);
 				const collections = await visibleCollections(ctx);
-				const blocks: Block[] = [{ type: "context", text: "Templates fill in only where an entry's own SEO title or description is empty, so nothing written is replaced. Leave one empty to keep what the site prints today." }];
+				const blocks: Block[] = [note("Templates fill in only where an entry's own SEO title or description is empty, so nothing written is replaced. Leave one empty to keep what the site prints today.")];
 				if (!collections.length) blocks.push({ type: "empty", title: "No collections found", size: "sm" });
 				for (const collection of collections) {
 					const set = { ...DEFAULT_COLLECTION_TITLES, ...titles.collections[collection.slug] };
@@ -323,7 +323,7 @@ export const meta: Module = {
 			async render(ctx, env) {
 				const core = await env.core(ctx);
 				return [
-					{ type: "context", text: "Used for the home page when its entry has no SEO title or description of its own." },
+					note("Used for the home page when its entry has no SEO title or description of its own."),
 					formBlock(HOME, await titlesSection.load(ctx.settings)),
 					VARIABLES,
 					...(core ? coreFields(core, "titles") : []),
@@ -339,7 +339,7 @@ export const meta: Module = {
 				const core = await env.core(ctx);
 				const blocks: Block[] = [];
 				if (core?.staging) blocks.push({ type: "banner", variant: "alert", title: "The site is in staging", description: "EmDash is asking search engines not to index any page. Go live under Settings when the site is ready." });
-				blocks.push({ type: "context", text: "These apply to every page. To hide the whole site use EmDash's staging mode; to hide one entry use its SEO fields." }, formBlock(ROBOTS, await titlesSection.load(ctx.settings)));
+				blocks.push(note("These apply to every page. To hide the whole site use EmDash's staging mode; to hide one entry use its SEO fields."), formBlock(ROBOTS, await titlesSection.load(ctx.settings)));
 				return blocks;
 			},
 		},
@@ -348,7 +348,7 @@ export const meta: Module = {
 			label: "Sharing",
 			order: 10,
 			async render(ctx) {
-				return [{ type: "context", text: "How pages look when shared. Each entry can override its sharing title, description and image." }, formBlock(SHARING, await socialSection.load(ctx.settings))];
+				return [note("How pages look when shared. Each entry can override its sharing title, description and image."), formBlock(SHARING, await socialSection.load(ctx.settings))];
 			},
 		},
 		{
@@ -358,7 +358,7 @@ export const meta: Module = {
 			order: 20,
 			async render(ctx, env) {
 				const core = await env.core(ctx);
-				return [...(core ? coreFields(core, "social") : []), { type: "context", text: "Profiles listed here are added to the site's structured data." }, formBlock(PROFILES, await socialSection.load(ctx.settings))];
+				return [...(core ? coreFields(core, "social") : []), note("Profiles listed here are added to the site's structured data."), formBlock(PROFILES, await socialSection.load(ctx.settings))];
 			},
 		},
 		{
@@ -369,9 +369,9 @@ export const meta: Module = {
 				const core = await env.core(ctx);
 				return [
 					...(core ? coreFields(core, "verification") : []),
-					{ type: "context", text: "Paste the code each service gives you (the content value of its meta tag)." },
+					note("Paste the code each service gives you (the content value of its meta tag)."),
 					formBlock(VERIFICATION, await advancedSection.load(ctx.settings)),
-					...(core ? [] : [{ type: "divider" } as Block, { type: "context", text: "Site details" } as Block, formBlock(FALLBACK, await fallbackSection.load(ctx.settings))]),
+					...(core ? [] : [{ type: "divider" } as Block, note("Site details") as Block, formBlock(FALLBACK, await fallbackSection.load(ctx.settings))]),
 				];
 			},
 		},

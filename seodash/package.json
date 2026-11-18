@@ -1,6 +1,6 @@
 {
   "name": "seodash",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "SEO for EmDash: titles and meta, social cards, structured data, content analysis, site audit, instant indexing and publishing rules.",
   "license": "GPL-3.0-only",
   "type": "module",

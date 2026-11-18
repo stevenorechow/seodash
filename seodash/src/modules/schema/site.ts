@@ -6,6 +6,7 @@
  * breadcrumbs and the local business. Settings, their forms, and the nodes they produce.
  */
 import type { FieldSpec, FormSpec } from "../../admin/forms.js";
+import { textField, toggleField } from "../../admin/forms.js";
 import { defineSection } from "../../core/settings.js";
 import type { PageInput } from "../../kit.js";
 import type { SiteIdentity } from "../meta.js";
@@ -123,11 +124,11 @@ const ADDRESS: FieldSpec[] = [text("street", "Street address"), text("city", "Ci
 export const OUTPUT: FormSpec = {
 	id: "schema:output",
 	fields: [
-		{ kind: "toggle", key: "enabled", label: "Print structured data", description: "Leave off if the site's templates already print their own JSON-LD." },
-		{ kind: "toggle", key: "publisher", label: "Publisher", description: "The organization or person behind the site." },
-		{ kind: "toggle", key: "website", label: "Website", description: "Replaces the basic website data EmDash prints." },
-		{ kind: "text", key: "searchUrl", label: "Site search URL", placeholder: "https://example.com/search?q={search_term_string}", when: { field: "website", eq: true } },
-		{ kind: "toggle", key: "breadcrumbs", label: "Breadcrumbs", description: "Uses the trail each page template supplies; pages without one get none." },
+		toggleField("enabled", "Print structured data", { description: "Leave off if the site's templates already print their own JSON-LD." }),
+		toggleField("publisher", "Publisher", { description: "The organization or person behind the site." }),
+		toggleField("website", "Website", { description: "Replaces the basic website data EmDash prints." }),
+		textField("searchUrl", "Site search URL", { placeholder: "https://example.com/search?q={search_term_string}", when: { field: "website", eq: true } }),
+		toggleField("breadcrumbs", "Breadcrumbs", { description: "Uses the trail each page template supplies; pages without one get none." }),
 	],
 };
 
@@ -146,7 +147,7 @@ export const publisherForm = (siteName: string): FormSpec => ({
 		text("name", "Name", siteName),
 		text("alternateName", "Alternate name"),
 		text("logo", "Logo or photo URL", "Leave empty to use the site logo"),
-		{ kind: "text", key: "description", label: "Description", multiline: true },
+		textField("description", "Description", { multiline: true }),
 		text("email", "Email"),
 		text("telephone", "Phone", "With country code, e.g. +1 555 010 0000"),
 		{ ...text("contactType", "Contact type", "e.g. customer support"), when: { field: "type", eq: "Organization" } },
@@ -161,8 +162,8 @@ export const publisherForm = (siteName: string): FormSpec => ({
 export const localForm = (siteName: string): FormSpec => ({
 	id: "schema:local",
 	fields: [
-		{ kind: "toggle", key: "enabled", label: "Print the local business", description: "Printed once structured data is switched on under Output." },
-		{ kind: "toggle", key: "everyPage", label: "On every page", description: "Off: on the home page only." },
+		toggleField("enabled", "Print the local business", { description: "Printed once structured data is switched on under Output." }),
+		toggleField("everyPage", "On every page", { description: "Off: on the home page only." }),
 		businessTypeField("businessType"),
 		text("name", "Business name", siteName),
 		text("image", "Image URL", "Leave empty to use the site logo"),
@@ -174,7 +175,7 @@ export const localForm = (siteName: string): FormSpec => ({
 		text("longitude", "Longitude"),
 		text("cuisine", "Cuisine served", "Comma-separated; food businesses only"),
 		text("menu", "Menu URL"),
-		{ kind: "toggle", key: "reservations", label: "Accepts reservations" },
+		toggleField("reservations", "Accepts reservations"),
 	],
 });
 
@@ -184,7 +185,7 @@ export const HOURS: FormSpec = {
 		const key = day.toLowerCase();
 		const open = { field: `${key}Open`, eq: true };
 		return [
-			{ kind: "toggle", key: `${key}Open`, label: `Open on ${day}` },
+			toggleField(`${key}Open`, `Open on ${day}`),
 			{ ...text(`${key}Opens`, `${day} opens`, "09:00"), when: open },
 			{ ...text(`${key}Closes`, `${day} closes`, "17:00"), when: open },
 			{ ...text(`${key}Opens2`, `${day} reopens`, "Only for a second opening time"), when: open },

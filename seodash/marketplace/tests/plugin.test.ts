@@ -9,7 +9,13 @@ afterEach(async () => {
 	host = undefined;
 });
 
-type Response = { blocks: Array<{ type: string; panels?: Array<{ label: string }> }>; toast?: { type: string; message: string } };
+type Response = { blocks: Array<{ type: string; block_id?: string; description?: string; panels?: Array<{ label: string }> }>; toast?: unknown };
+/** The outcome of an action: a banner at the top of the response (the shell never returns a toast). */
+function notice(response: Response): { type: string; message: string } | undefined {
+	expect(response.toast).toBeUndefined();
+	const banner = response.blocks.find((block) => block.type === "banner" && block.block_id?.startsWith("notice-"));
+	return banner ? { type: banner.block_id!.slice(7), message: String(banner.description) } : undefined;
+}
 
 describe("SEOdash in the sandbox", () => {
 	it("renders every admin page", async () => {
@@ -24,7 +30,7 @@ describe("SEOdash in the sandbox", () => {
 	it("saves settings through the sandbox bridge and leaves trusted-only features out", async () => {
 		host = await createPluginTestHost();
 		const saved = (await host.invokeRoute("admin", { type: "form_submit", action_id: "meta:home", page: "/titles", values: { homeTitle: "Welcome", homeDescription: "" } })) as Response;
-		expect(saved.toast).toMatchObject({ type: "success" });
+		expect(notice(saved)).toMatchObject({ type: "success" });
 		expect(JSON.stringify(await host.invokeRoute("admin", { type: "page_load", page: "/titles" }))).toContain("Welcome");
 		const settings = (await host.invokeRoute("admin", { type: "page_load", page: "/settings" })) as Response;
 		const labels = settings.blocks.find((block) => block.type === "tab")?.panels?.map((panel) => panel.label) ?? [];
@@ -43,11 +49,11 @@ describe("SEOdash in the sandbox", () => {
 	it("switches a feature off and on again", async () => {
 		host = await createPluginTestHost();
 		const off = (await host.invokeRoute("admin", { type: "form_submit", action_id: "features:save", page: "/settings", values: { schema: false } })) as Response;
-		expect(off.toast).toMatchObject({ type: "success" });
+		expect(notice(off)).toMatchObject({ type: "success" });
 		const page = JSON.stringify(await host.invokeRoute("admin", { type: "page_load", page: "/schema" }));
 		expect(page).toContain("Structured data is off");
 		const on = (await host.invokeRoute("admin", { type: "block_action", action_id: "features:on", page: "/schema", value: "schema" })) as Response;
-		expect(on.toast).toMatchObject({ type: "success" });
+		expect(notice(on)).toMatchObject({ type: "success" });
 		expect(JSON.stringify(on)).not.toContain("Structured data is off");
 	});
 });

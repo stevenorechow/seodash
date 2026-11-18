@@ -12,7 +12,7 @@
 import { formBlock, type FormSpec, readForm } from "../admin/forms.js";
 import { NOT_SCORED, SEVERITY_LABEL, TITLE_LIMIT } from "../core/analysis.js";
 import { entryKey } from "../core/entry.js";
-import { type Block, type Ctx, type Env, type ListedItem, type Module, type PageState, type Store, ago, all, isRecord, ok, store } from "../kit.js";
+import { type Block, type Ctx, type Env, type ListedItem, type Module, type PageState, type Store, ago, all, isRecord, ok, store, note } from "../kit.js";
 import { analyzeEntry } from "./entry.js";
 import { searchAppearance, titlesSection } from "./meta.js";
 import { freshKv, hostCalls, prime } from "../core/scope.js";
@@ -45,6 +45,8 @@ export interface AuditFinding {
 	/** Entries affected. */
 	count: number;
 	severity: "high" | "medium" | "low";
+	/** The worst-scoring affected entries, at most FINDING_ENTRIES, each with what makes it a finding. */
+	entries?: Array<{ collection: string; entryId: string; title: string; detail: string }>;
 }
 
 export interface AuditSummary {
@@ -79,12 +81,26 @@ const MAX_SHOWN = 200;
 const HISTORY = 30;
 const DEFAULT_VIEW: View = { collection: "all", show: "all", sort: "asc" };
 
+/** Entries listed under each finding on the Overview; the rest are on the Content tab. */
+const FINDING_ENTRIES = 10;
+
+/** Each finding: its label, how severe it is, what to do about it, and what to show next to an entry. */
+const FINDINGS: Array<{ id: string; short: string; label: string; severity: AuditFinding["severity"]; todo: string; detail: (row: AuditRow) => string }> = [
+	{ id: "duplicate-titles", short: "Same title", label: "Search title used by more than one entry", severity: "high", todo: "Give each its own SEO title.", detail: (row) => row.searchTitle },
+	{ id: "no-description", short: "No description", label: "No description", severity: "high", todo: "Write a meta description or an excerpt.", detail: () => "" },
+	{ id: "alt", short: "No alt text", label: "Images without alt text", severity: "high", todo: "Add alt text to each image.", detail: () => "" },
+	{ id: "duplicate-descriptions", short: "Same description", label: "Description used by more than one entry", severity: "medium", todo: "Give each its own meta description.", detail: (row) => row.description },
+	{ id: "long-titles", short: "Long title", label: `Search title longer than ${TITLE_LIMIT} characters`, severity: "medium", todo: "Shorten the SEO title.", detail: (row) => `${row.searchTitle.length} characters` },
+	{ id: "thin", short: "Thin", label: "Thin content", severity: "medium", todo: "Add to the content: 300 words or more.", detail: (row) => plural(row.words, "word") },
+	{ id: "no-image", short: "No image", label: "No sharing image", severity: "medium", todo: "Choose an OG image or a featured image.", detail: () => "" },
+	{ id: "hidden", short: "Hidden", label: "Hidden from search engines", severity: "low", todo: "Switch off \"Hide from search engines\" if it should be found.", detail: () => "" },
+];
+
 const SHOW = [
 	{ label: "All entries", value: "all" },
 	{ label: "Needs fixing", value: "fix" },
-	{ label: "Duplicate title or description", value: "duplicates" },
-	{ label: "No description", value: "nodescription" },
 	{ label: "No search title", value: "notitle" },
+	...FINDINGS.map((finding) => ({ label: finding.label, value: finding.id })),
 ];
 
 const rows = (ctx: Ctx): Store<AuditRow> => store<AuditRow>(ctx, "audit");
@@ -142,20 +158,39 @@ async function refresh(ctx: Ctx, env: Env, collection: string, id: string): Prom
 	await ctx.kv.set(KEY.stale, true);
 }
 
+/** Tells which findings an entry is part of. Built once per list: duplicates depend on the other entries. */
+function matcher(list: AuditRow[]): (id: string, row: AuditRow) => boolean {
+	const sameTitle = duplicated(list, (row) => row.searchTitle);
+	const sameDescription = duplicated(list, (row) => row.description);
+	const id = (row: AuditRow) => rowId(row.collection, row.entryId);
+	const tests: Record<string, (row: AuditRow) => boolean> = {
+		"duplicate-titles": (row) => sameTitle.has(id(row)),
+		"no-description": (row) => !row.description && !row.noIndex,
+		alt: (row) => row.issues.includes("alt"),
+		"duplicate-descriptions": (row) => sameDescription.has(id(row)),
+		"long-titles": (row) => row.searchTitle.length > TITLE_LIMIT,
+		thin: (row) => row.issues.includes("depth"),
+		"no-image": (row) => row.issues.includes("image"),
+		hidden: (row) => row.noIndex,
+	};
+	return (finding, row) => tests[finding]?.(row) ?? false;
+}
+
 function findingsOf(list: AuditRow[]): AuditFinding[] {
-	const has = (id: string) => list.filter((row) => row.issues.includes(id)).length;
-	const found: AuditFinding[] = [
-		{ id: "duplicate-titles", label: "Search title used by more than one entry", count: duplicated(list, (row) => row.searchTitle).size, severity: "high" },
-		{ id: "no-description", label: "No description", count: list.filter((row) => !row.description && !row.noIndex).length, severity: "high" },
-		{ id: "alt", label: "Images without alt text", count: has("alt"), severity: "high" },
-		{ id: "duplicate-descriptions", label: "Description used by more than one entry", count: duplicated(list, (row) => row.description).size, severity: "medium" },
-		{ id: "long-titles", label: `Search title longer than ${TITLE_LIMIT} characters`, count: list.filter((row) => row.searchTitle.length > TITLE_LIMIT).length, severity: "medium" },
-		{ id: "thin", label: "Thin content", count: has("depth"), severity: "medium" },
-		{ id: "no-image", label: "No sharing image", count: has("image"), severity: "medium" },
-		{ id: "hidden", label: "Hidden from search engines", count: list.filter((row) => row.noIndex).length, severity: "low" },
-	];
+	const matches = matcher(list);
 	const order = { high: 0, medium: 1, low: 2 };
-	return found.filter((finding) => finding.count > 0).sort((a, b) => order[a.severity] - order[b.severity] || b.count - a.count);
+	return FINDINGS.map((finding) => {
+		const affected = list.filter((row) => matches(finding.id, row)).sort((a, b) => a.score - b.score || a.title.localeCompare(b.title));
+		return {
+			id: finding.id,
+			label: finding.label,
+			count: affected.length,
+			severity: finding.severity,
+			entries: affected.slice(0, FINDING_ENTRIES).map((row) => ({ collection: row.collection, entryId: row.entryId, title: clip(row.title || "Untitled", 80), detail: clip(finding.detail(row), 80) })),
+		};
+	})
+		.filter((finding) => finding.count > 0)
+		.sort((a, b) => order[a.severity] - order[b.severity] || b.count - a.count);
 }
 
 /** Sums the rows up and saves the result. `pass` is set when a full pass has just finished. */
@@ -314,6 +349,36 @@ function notScanned(cursor: ScanCursor | null): Block {
 	};
 }
 
+const editLink = (row: { collection: string; entryId: string }) => ({ type: "link", label: "Edit", target: { kind: "content", collection: row.collection, id: row.entryId } });
+
+/** One finding on the Overview: what is wrong, what to do, and the entries to open. */
+function findingBlock(finding: AuditFinding, labels: Map<string, string>, open: boolean): Block {
+	const spec = FINDINGS.find((candidate) => candidate.id === finding.id);
+	const listed = finding.entries ?? [];
+	const content: Block[] = [note(spec?.todo ?? "")];
+	if (listed.length) {
+		content.push({
+			type: "table",
+			page_action_id: `audit:finding/${finding.id}`,
+			columns: [
+				{ key: "entry", label: "Entry" },
+				{ key: "edit", label: "", format: "element" },
+				{ key: "collection", label: "Collection" },
+				...(listed.some((row) => row.detail) ? [{ key: "detail", label: "Now" }] : []),
+			],
+			rows: listed.map((row) => ({
+				entry: row.title,
+				edit: editLink(row),
+				collection: labels.get(row.collection) ?? row.collection,
+				detail: row.detail,
+			})),
+		});
+	}
+	// Summaries saved before entries were listed per finding, or more entries than fit here: the Content tab has them all.
+	if (finding.count > listed.length) content.push({ type: "actions", elements: [{ type: "button", label: listed.length ? `Show all ${finding.count}` : "Show the entries", action_id: "audit:show", value: finding.id }] });
+	return { type: "accordion", label: `${SEVERITY_LABEL[finding.severity]}: ${finding.label} (${plural(finding.count, "entry", "entries")})`, default_open: open, blocks: content };
+}
+
 async function overview(ctx: Ctx, env: Env): Promise<Block[]> {
 	const blocks: Block[] = [];
 	const core = await env.core(ctx);
@@ -342,26 +407,18 @@ async function overview(ctx: Ctx, env: Env): Promise<Block[]> {
 		});
 	}
 	if (summary.findings.length) {
-		blocks.push({
-			type: "table",
-			page_action_id: "audit:findings",
-			columns: [
-				{ key: "finding", label: "Finding" },
-				{ key: "entries", label: "Entries", format: "number" },
-				{ key: "severity", label: "", format: "badge" },
-			],
-			rows: summary.findings.slice(0, 8).map((finding) => ({ finding: finding.label, entries: finding.count, severity: SEVERITY_LABEL[finding.severity] })),
-		});
+		const labels = new Map(((await ctx.schema?.listCollections().catch(() => [])) ?? []).map((collection) => [collection.slug, collection.label]));
+		summary.findings.forEach((finding, index) => blocks.push(findingBlock(finding, labels, index === 0)));
 	} else {
-		blocks.push({ type: "context", text: "No site-wide problems found." });
+		blocks.push(note("No problems found. New and changed entries are checked when they are saved."));
 	}
 	// A template's noindex reaches the page but not EmDash's sitemap, which reads only the entry's own setting.
 	if (env.modules.some((module) => module.id === "meta")) {
 		const hidden = Object.entries((await titlesSection.load(ctx.settings)).collections).filter(([, titles]) => titles.noindex).map(([slug]) => slug);
 		const labels = hidden.length ? new Map(((await ctx.schema?.listCollections()) ?? []).map((collection) => [collection.slug, collection.label])) : null;
-		if (labels) blocks.push({ type: "context", text: `${hidden.map((slug) => labels.get(slug) ?? slug).join(", ")}: hidden from search engines by a template, but EmDash's sitemap still lists these entries.` });
+		if (labels) blocks.push(note(`${hidden.map((slug) => labels.get(slug) ?? slug).join(", ")}: hidden from search engines by a template, but EmDash's sitemap still lists these entries.`));
 	}
-	blocks.push({ type: "context", text: cursor ? `Last scanned ${ago(summary.scannedAt).toLowerCase()}. Scanning again: ${progress(cursor.done, summary)}.` : `Last scanned ${ago(summary.scannedAt).toLowerCase()}.` }, scanButton(cursor ? "Continue the scan" : "Scan now"));
+	blocks.push(note(cursor ? `Last scanned ${ago(summary.scannedAt).toLowerCase()}. Scanning again: ${progress(cursor.done, summary)}.` : `Last scanned ${ago(summary.scannedAt).toLowerCase()}.`), scanButton(cursor ? "Continue the scan" : "Scan now"));
 	return blocks;
 }
 
@@ -369,15 +426,13 @@ async function entriesTab(ctx: Ctx, state: PageState): Promise<Block[]> {
 	const list = (await all(rows(ctx))).map((item) => item.data);
 	if (!list.length) return [notScanned(await ctx.kv.get<ScanCursor>(KEY.cursor))];
 	const view = await loadView(ctx);
-	const sameTitle = duplicated(list, (row) => row.searchTitle);
-	const sameDescription = duplicated(list, (row) => row.description);
+	const matches = matcher(list);
 	const keep: Record<string, (row: AuditRow) => boolean> = {
 		all: () => true,
 		fix: (row) => row.high > 0 && !row.noIndex,
-		duplicates: (row) => sameTitle.has(rowId(row.collection, row.entryId)) || sameDescription.has(rowId(row.collection, row.entryId)),
-		nodescription: (row) => !row.description,
 		notitle: (row) => !row.hasSeoTitle,
 	};
+	for (const finding of FINDINGS) keep[finding.id] = (row) => matches(finding.id, row);
 	const direction = view.sort === "desc" ? -1 : 1;
 	const shown = list
 		.filter((row) => view.collection === "all" || row.collection === view.collection)
@@ -398,27 +453,33 @@ async function entriesTab(ctx: Ctx, state: PageState): Promise<Block[]> {
 				{ key: "score", label: "Score", format: "number", sortable: true },
 				{ key: "searchTitle", label: "Search title" },
 				{ key: "description", label: "Description" },
-				{ key: "issues", label: "Issues", format: "badge" },
+				{ key: "issues", label: "Issues" },
 			],
 			rows: shown.slice(0, end).map((row) => ({
 				entry: clip(row.title || "Untitled", 80),
-				edit: { type: "link", label: "Edit", target: { kind: "content", collection: row.collection, id: row.entryId } },
+				edit: editLink(row),
 				score: row.noIndex ? "—" : row.score,
 				searchTitle: clip(row.searchTitle, 80) || "Not set",
 				description: clip(row.description, 90) || "Not set",
-				issues: row.noIndex ? NOT_SCORED : row.high + row.medium ? String(row.high + row.medium) : "None",
+				issues: issuesOf(row),
 			})),
 			...(shown.length > end && end < MAX_SHOWN ? { next_cursor: String(end) } : {}),
 		},
 	];
+	function issuesOf(row: AuditRow): string {
+		if (row.noIndex) return NOT_SCORED;
+		const names = FINDINGS.filter((finding) => finding.id !== "hidden" && matches(finding.id, row)).map((finding) => finding.short);
+		return names.length ? names.join(", ") : row.high + row.medium ? "See the entry's SEO panel" : "None";
+	}
 	const total = plural(shown.length, "entry", "entries");
-	blocks.push({ type: "context", text: shown.length > MAX_SHOWN && end >= MAX_SHOWN ? `Showing the first ${MAX_SHOWN} of ${total}. Use the filters to narrow the list.` : `${total}. Issues counts what to fix or improve.` });
+	blocks.push(note(shown.length > MAX_SHOWN && end >= MAX_SHOWN ? `Showing the first ${MAX_SHOWN} of ${total}. Use the filters to narrow the list.` : total));
 	return blocks;
 }
 
 async function widget(ctx: Ctx): Promise<Block[]> {
 	const summary = await auditSummary(ctx);
-	if (!summary) return [{ type: "empty", title: "Not scanned yet", description: "Open SEO to scan the site.", size: "sm" }];
+	const open: Block = { type: "actions", elements: [{ type: "link", label: "Open SEO overview", target: { kind: "plugin-page", path: "/overview" }, appearance: "secondary" }] };
+	if (!summary) return [{ type: "empty", title: "Not scanned yet", description: "The first scan starts within five minutes, or start it from the overview.", size: "sm" }, open];
 	const blocks: Block[] = [
 		{ type: "meter", label: "SEO score", value: summary.score, custom_value: `${summary.score} / 100` },
 		{
@@ -430,18 +491,29 @@ async function widget(ctx: Ctx): Promise<Block[]> {
 			],
 		},
 	];
-	if (summary.findings.length) {
+	// The worst entry of each of the top findings, to open straight from the dashboard.
+	// Each finding offers its worst entry not already listed, so the rows are three different entries where possible.
+	const used = new Set<string>();
+	const first = summary.findings.slice(0, 3).flatMap((finding) => {
+		const list = finding.entries ?? [];
+		const row = list.find((candidate) => !used.has(candidate.entryId)) ?? list[0];
+		if (!row) return [];
+		used.add(row.entryId);
+		return [{ finding, row }];
+	});
+	if (first.length) {
 		blocks.push({
 			type: "table",
 			page_action_id: "audit:widget",
 			columns: [
+				{ key: "entry", label: "Fix first" },
 				{ key: "finding", label: "Finding" },
-				{ key: "entries", label: "Entries", format: "number" },
+				{ key: "edit", label: "", format: "element" },
 			],
-			rows: summary.findings.slice(0, 3).map((finding) => ({ finding: finding.label, entries: finding.count })),
+			rows: first.map(({ finding, row }) => ({ entry: row.title, finding: finding.label, edit: editLink(row) })),
 		});
 	}
-	blocks.push({ type: "context", text: `Last scanned ${ago(summary.scannedAt).toLowerCase()}.` }, { type: "actions", elements: [{ type: "link", label: "Open SEO overview", target: { kind: "plugin-page", path: "/overview" }, appearance: "secondary" }] });
+	blocks.push(note(`Last scanned ${ago(summary.scannedAt).toLowerCase()}.`), open);
 	return blocks;
 }
 
@@ -458,11 +530,15 @@ export const audit: Module = {
 
 	async act(ctx, env, action) {
 		if (action.id === "scan") {
-			const before = await auditSummary(ctx);
 			const result = await auditBatch(ctx, env);
 			if (result.busy) return { toast: { type: "info", message: "A scan is already running." } };
 			if (result.finished) return ok(`Scan complete: ${plural(result.done, "entry", "entries")}`);
-			return { toast: { type: "info", message: `Scanned ${progress(result.done, before)}. Press again or reload to continue; it also carries on by itself.` } };
+			// The page shows how far the scan has got; a message here would show an older count.
+			return {};
+		}
+		if (action.id === "show" && typeof action.value === "string" && FINDINGS.some((finding) => finding.id === action.value)) {
+			await ctx.kv.set(KEY.view, { ...DEFAULT_VIEW, show: action.value });
+			return { page: "/content" };
 		}
 		if (action.id === "filter" && action.values) {
 			const view = await loadView(ctx);

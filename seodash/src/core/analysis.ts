@@ -94,24 +94,24 @@ export function analyze(input: AnalysisInput): Analysis {
 	const now = input.now ?? new Date();
 
 	// Search title
-	if (!input.title) add("title", "Search title", "high", "No title is set.");
+	if (!input.title) add("title", "Search title", "high", "No title is set. Give the entry a title.");
 	else if (!input.titleIsCustom) add("title", "Search title", "medium", "Using the entry title. Fill in SEO Title in the editor's SEO section to control how the page appears in results.");
-	else if (input.title.length > TITLE_LIMIT) add("title", "Search title", "medium", `${input.title.length} characters. Titles over ${TITLE_LIMIT} are usually cut off in results.`);
-	else if (keywords.length && !has(input.title, keywords).length) add("title", "Search title", "medium", "None of the target keywords appear in the title.");
+	else if (input.title.length > TITLE_LIMIT) add("title", "Search title", "medium", `${input.title.length} characters. Shorten it: titles over ${TITLE_LIMIT} are usually cut off in results.`);
+	else if (keywords.length && !has(input.title, keywords).length) add("title", "Search title", "medium", "None of the target keywords appear in the title. Work one in.");
 	else add("title", "Search title", "good", keywords.length ? `Contains ${list(has(input.title, keywords))}.` : `${input.title.length} characters.`);
 
 	// Description
-	if (!input.description) add("description", "Description", "high", "No description is set. Search engines will pick their own text from the page.");
+	if (!input.description) add("description", "Description", "high", "No description is set, so search engines pick their own text. Fill in Meta Description in the editor's SEO section.");
 	else if (!input.descriptionIsCustom) add("description", "Description", "low", "Using the entry excerpt. Fill in Meta Description in the editor's SEO section to control the snippet in results.");
-	else if (input.description.length > DESCRIPTION_LIMIT) add("description", "Description", "medium", `${input.description.length} characters. Descriptions over ${DESCRIPTION_LIMIT} are usually cut off.`);
-	else if (keywords.length && !has(input.description, keywords).length) add("description", "Description", "medium", "None of the target keywords appear in the description.");
+	else if (input.description.length > DESCRIPTION_LIMIT) add("description", "Description", "medium", `${input.description.length} characters. Shorten it: descriptions over ${DESCRIPTION_LIMIT} are usually cut off.`);
+	else if (keywords.length && !has(input.description, keywords).length) add("description", "Description", "medium", "None of the target keywords appear in the description. Work one in.");
 	else add("description", "Description", "good", keywords.length ? `Contains ${list(has(input.description, keywords))}.` : `${input.description.length} characters.`);
 
 	// Keywords in the address
 	if (keywords.length) {
 		const slugText = input.slug.replace(/[-_/]+/g, " ");
 		const found = has(slugText, keywords);
-		add("slug", "Keywords in the address", found.length ? "good" : "medium", found.length ? `The address contains ${list(found)}.` : "The page address contains none of the target keywords.");
+		add("slug", "Keywords in the address", found.length ? "good" : "medium", found.length ? `The address contains ${list(found)}.` : "The page address contains none of the target keywords. Change the slug if the page is new.");
 	}
 
 	// Headings
@@ -123,13 +123,13 @@ export function analyze(input: AnalysisInput): Analysis {
 		// Page builders put the main heading in the content, so one H1 there is only worth a look.
 		add("h1", "Main heading", "low", "The content has an H1 heading. If the page also shows the entry title as its main heading, change this one to H2.");
 	} else if (keywords.length && input.heading && !has(input.heading, keywords).length) {
-		add("h1", "Main heading", "medium", "None of the target keywords appear in the entry title.");
+		add("h1", "Main heading", "medium", "None of the target keywords appear in the entry title. Work one in.");
 	} else if (input.heading) {
 		add("h1", "Main heading", "good", "One main heading: the entry title.");
 	}
 	if (keywords.length && subheadings.length) {
 		const found = has(subheadings.map((heading) => heading.text).join(" \n "), keywords);
-		add("subheadings", "Keywords in subheadings", found.length ? "good" : "low", found.length ? `Subheadings contain ${list(found)}.` : "No subheading contains a target keyword.");
+		add("subheadings", "Keywords in subheadings", found.length ? "good" : "low", found.length ? `Subheadings contain ${list(found)}.` : "No subheading contains a target keyword. Use one in an H2 or H3.");
 	}
 	let skipped = false;
 	let previous = 1;
@@ -137,7 +137,7 @@ export function analyze(input: AnalysisInput): Analysis {
 		if (heading.level > previous + 1) skipped = true;
 		previous = heading.level;
 	}
-	if (outline.headings.length) add("hierarchy", "Heading order", skipped ? "low" : "good", skipped ? "A heading level is skipped (for example H2 straight to H4)." : "Headings follow in order.");
+	if (outline.headings.length) add("hierarchy", "Heading order", skipped ? "low" : "good", skipped ? "A heading level is skipped (for example H2 straight to H4). Use each level in turn." : "Headings follow in order.");
 
 	// Content depth and structure
 	if (words > 0 || outline.headings.length) {
@@ -167,14 +167,14 @@ export function analyze(input: AnalysisInput): Analysis {
 	// Images
 	if (outline.images.length) {
 		const missing = outline.images.filter((image) => !image.alt.trim()).length;
-		add("alt", "Image alt text", missing ? "high" : "good", missing ? `${missing} of ${outline.images.length} images have no alt text.` : `All ${outline.images.length} images have alt text.`);
+		add("alt", "Image alt text", missing ? "high" : "good", missing ? `${missing} of ${outline.images.length} images have no alt text. Describe each one in its alt text.` : `All ${outline.images.length} images have alt text.`);
 	}
 
 	// Links
 	const internal = outline.links.filter((link) => isInternal(link.href, input.siteUrl));
 	const outbound = outline.links.filter((link) => /^https?:\/\//i.test(link.href) && !isInternal(link.href, input.siteUrl));
 	if (words >= MIN_WORDS) {
-		add("internal", "Internal links", internal.length ? "good" : "medium", internal.length ? `${internal.length} link${internal.length === 1 ? "" : "s"} to other pages of this site.` : "No links to other pages of this site.");
+		add("internal", "Internal links", internal.length ? "good" : "medium", internal.length ? `${internal.length} link${internal.length === 1 ? "" : "s"} to other pages of this site.` : "No links to other pages of this site. Link to related pages.");
 		add("outbound", "Outbound links", outbound.length ? "good" : "low", outbound.length ? `${outbound.length} link${outbound.length === 1 ? "" : "s"} to other sites.` : "No links to other sites. Linking to sources can help readers.");
 	}
 	const nofollowed = outline.links.filter((link) => link.nofollow).length;
@@ -183,16 +183,16 @@ export function analyze(input: AnalysisInput): Analysis {
 	// Indexing
 	// Hiding an entry is a choice, not a fault: it is pointed out and no more.
 	if (input.noIndex) add("robots", "Search visibility", "info", "This entry is hidden from search engines.");
-	else if (input.nofollow) add("robots", "Search visibility", "medium", "Search engines are asked not to follow this page's links.");
+	else if (input.nofollow) add("robots", "Search visibility", "medium", "Search engines are asked not to follow this page's links. Change it under Robots if that is not intended.");
 	else add("robots", "Search visibility", "good", "Search engines can index this page.");
 	if (input.canonical && input.url) {
 		const same = input.canonical.replace(/\/+$/, "") === input.url.replace(/\/+$/, "") || input.canonical.replace(/\/+$/, "") === input.url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "");
-		if (!same) add("canonical", "Canonical URL", "high", `Points to another address (${input.canonical}). Search engines will index that page instead of this one.`);
+		if (!same) add("canonical", "Canonical URL", "high", `Points to another address (${input.canonical}). Search engines will index that page instead. Clear Canonical URL in the SEO section unless that is intended.`);
 	}
 
 	// Sharing
-	add("image", "Sharing image", input.hasImage ? "good" : "medium", input.hasImage ? "An image is set for social sharing." : "No image is set. Shared links will show without a picture.");
-	if (!input.hasSchema) add("schema", "Structured data", "low", "No structured data is set for this entry.");
+	add("image", "Sharing image", input.hasImage ? "good" : "medium", input.hasImage ? "An image is set for social sharing." : "No image is set, so shared links show without a picture. Add one in the editor's SEO section or as a featured image.");
+	if (!input.hasSchema) add("schema", "Structured data", "low", "No structured data is set. Add it under Structured data if a type fits the page.");
 
 	// Freshness
 	if (input.updatedAt && now.getTime() - new Date(input.updatedAt).getTime() > 365 * 86400 * 1000) {

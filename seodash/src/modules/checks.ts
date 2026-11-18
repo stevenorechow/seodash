@@ -6,10 +6,10 @@
  * place. Off by default. Uses EmDash's publication policy hook, so the rule holds wherever the
  * entry is published from (editor, API, scheduler, agents).
  */
-import { formBlock, type FormSpec, readForm, withCollections } from "../admin/forms.js";
+import { formBlock, type FormSpec, readForm, withCollections, toggleField } from "../admin/forms.js";
 import { defineSection } from "../core/settings.js";
 import { outlineContent } from "../core/text.js";
-import { type Module, ok } from "../kit.js";
+import { type Module, ok, note } from "../kit.js";
 import { searchAppearance } from "./meta.js";
 
 export interface ChecksSettings {
@@ -24,8 +24,8 @@ export const checksSection = defineSection<ChecksSettings>("checks", { requireDe
 const FORM: FormSpec = {
 	id: "checks:settings",
 	fields: [
-		{ kind: "toggle", key: "requireDescription", label: "Require a search description", description: "An entry needs an SEO description, an excerpt or a description template before it can be published." },
-		{ kind: "toggle", key: "requireAlt", label: "Require alt text on images", description: "Every image needs alt text before publishing. This applies to entries hidden from search engines too, because alt text is for accessibility." },
+		toggleField("requireDescription", "Require a search description", { description: "An entry needs an SEO description, an excerpt or a description template before it can be published." }),
+		toggleField("requireAlt", "Require alt text on images", { description: "Every image needs alt text before publishing. This applies to entries hidden from search engines too, because alt text is for accessibility." }),
 		{ kind: "collections", key: "collections", label: "Only these collections", description: "None ticked means every collection." },
 	],
 };
@@ -40,7 +40,7 @@ export const checks: Module = {
 			label: "Publishing",
 			order: 45,
 			async render(ctx) {
-				return [{ type: "context", text: "Rules an entry must meet before it is published, however it is published, scheduled entries included." }, formBlock(await withCollections(ctx, FORM), await checksSection.load(ctx.settings))];
+				return [note("Rules an entry must meet before it is published, however it is published, scheduled entries included."), formBlock(await withCollections(ctx, FORM), await checksSection.load(ctx.settings))];
 			},
 		},
 	],

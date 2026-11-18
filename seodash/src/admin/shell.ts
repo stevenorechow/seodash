@@ -161,6 +161,16 @@ function remount(blocks: Block[], parsed: Parsed | null, result: ActResult | nul
 	return blocks;
 }
 
+/**
+ * The outcome of an action, shown at the top of what was re-rendered. EmDash pins toasts to the top-right
+ * corner, over the header's theme switch and user menu, so the shell shows the message inline instead.
+ */
+function notice(result: ActResult | null): Block[] {
+	const toast = result?.toast;
+	if (!toast?.message) return [];
+	return [{ type: "banner", block_id: `notice-${toast.type}`, variant: toast.type === "error" ? "error" : "default", description: toast.message }];
+}
+
 /** Handles one interaction from an admin page or dashboard widget. `live` gives the environment as the features stand now. */
 export async function handleAdmin(input: unknown, ctx: Ctx, live: () => Promise<Env>): Promise<BlockResponse> {
 	const parsed = parse(input);
@@ -179,8 +189,7 @@ export async function handleAdmin(input: unknown, ctx: Ctx, live: () => Promise<
 	if (result) env = await live();
 	const page = normalize(result?.page ?? parsed.page);
 	const state: PageState = { ...(parsed.action ? { action: { ...parsed.action, module: parsed.module } } : {}), ...(result?.tab ? { focus: result.tab } : {}) };
-	const blocks = remount(hints(await renderPage(ctx, env, page, state)), parsed, result);
-	return result?.toast ? { blocks, toast: result.toast } : { blocks };
+	return { blocks: [...notice(result), ...remount(hints(await renderPage(ctx, env, page, state)), parsed, result)] };
 }
 
 /** Handles one interaction from the panel beside a saved entry. `target` is host-attested. */
@@ -207,7 +216,7 @@ export async function handlePanel(input: unknown, target: { collection: string; 
 			content = await section.render(ctx, env, current);
 		} catch (error) {
 			ctx.log.error(`${PORT.name} panel section failed`, { section: section.id, error: String(error) });
-			content = [{ type: "banner", variant: "error", description: "This section could not be loaded." }];
+			content = [{ type: "banner", variant: "error", description: "This section could not be loaded. Reopen the entry; if it keeps happening, check the server log." }];
 		}
 		if (!content.length) continue;
 		if (section.order === 0) blocks.push(...content);
@@ -215,5 +224,5 @@ export async function handlePanel(input: unknown, target: { collection: string; 
 	}
 	// Nothing that works on entries is switched on: say so instead of showing an empty panel.
 	if (!blocks.length) blocks.push({ type: "context", text: "Nothing is switched on for entries yet." }, SETTINGS_LINK);
-	return { blocks: remount(hints(blocks), parsed, result), ...(result?.toast ? { toast: result.toast } : {}), ...(result?.refresh ? { refresh: true as const } : {}) };
+	return { blocks: [...notice(result), ...remount(hints(blocks), parsed, result)], ...(result?.refresh ? { refresh: true as const } : {}) };
 }

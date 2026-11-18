@@ -199,6 +199,19 @@ export const CORE: CoreSite = {
  * Modules composed the way the plugin does it, over a fake context. `core: null` behaves like the
  * marketplace sandbox (EmDash's site settings cannot be read).
  */
+/**
+ * The shell shows an action's outcome as a "notice" banner at the top of the response, never as a toast
+ * (EmDash pins toasts over the header controls). Tests read it back as `toast`, with the type its
+ * block id carries (`notice-success`, `notice-info`, `notice-error`).
+ */
+export async function withNotice<T>(pending: Promise<T> | T): Promise<T & { toast?: { type: string; message: string } }> {
+	const response = (await pending) as T & { blocks?: Array<Record<string, unknown>>; toast?: unknown };
+	if (response && typeof response === "object" && "toast" in response) throw new Error("the shell returned a toast");
+	const banner = response?.blocks?.find((block) => block.type === "banner" && String(block.block_id).startsWith("notice-"));
+	type Out = T & { toast?: { type: string; message: string } };
+	return (banner ? { ...response, toast: { type: String(banner.block_id).slice(7), message: String(banner.description) } } : response) as Out;
+}
+
 export function harness(modules: Module[], options: FakeOptions & { core?: Partial<CoreSite> | null; /** "default" leaves features as a new install has them; otherwise every feature is switched on. */ features?: "default" } = {}) {
 	const ctx = fakeCtx(options);
 	if (options.features !== "default") (ctx.settings as unknown as { data: Map<string, unknown> }).data.set("config:features", Object.fromEntries(modules.filter((module) => module.feature).map((module) => [module.id, true])));
@@ -210,13 +223,13 @@ export function harness(modules: Module[], options: FakeOptions & { core?: Parti
 		env: built.env,
 		built,
 		/** Loads an admin page. */
-		page: (path: string) => built.routes.admin({ type: "page_load", page: path }, ctx),
+		page: (path: string) => withNotice(built.routes.admin({ type: "page_load", page: path }, ctx)),
 		/** Submits a form on an admin page. */
-		submit: (page: string, actionId: string, values: Record<string, unknown>) => built.routes.admin({ type: "form_submit", page, action_id: actionId, values }, ctx),
+		submit: (page: string, actionId: string, values: Record<string, unknown>) => withNotice(built.routes.admin({ type: "form_submit", page, action_id: actionId, values }, ctx)),
 		/** Presses a button on an admin page. */
-		press: (page: string, actionId: string, value?: unknown) => built.routes.admin({ type: "block_action", page, action_id: actionId, value }, ctx),
+		press: (page: string, actionId: string, value?: unknown) => withNotice(built.routes.admin({ type: "block_action", page, action_id: actionId, value }, ctx)),
 		/** Loads or interacts with the entry panel. */
-		panel: (collection: string, id: string, input: unknown = { type: "panel_load" }) => built.routes.entry(input, { collection, id }, ctx),
+		panel: (collection: string, id: string, input: unknown = { type: "panel_load" }) => withNotice(built.routes.entry(input, { collection, id }, ctx)),
 		/** The head tags for a public page. */
 		head: (page: Record<string, unknown>) =>
 			built.hooks.metadata({ page: { url: "https://acme.test/", path: "/", locale: "en", pageType: "website", title: null, description: null, canonical: null, image: null, ...page } as never }, ctx),

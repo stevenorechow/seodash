@@ -10,10 +10,10 @@
  *
  * Off by default: it makes outbound requests.
  */
-import { formBlock, type FormSpec, readForm, readSecrets, withCollections } from "../admin/forms.js";
+import { formBlock, type FormSpec, readForm, readSecrets, withCollections, textField, toggleField } from "../admin/forms.js";
 import { GOOGLE_KEY_SECRET, googleMessage, googleToken, parseServiceAccount } from "../core/google.js";
 import { defineSection, secrets } from "../core/settings.js";
-import { type ActResult, type Block, type Ctx, type Module, ago, fail, ok, store } from "../kit.js";
+import { type ActResult, type Block, type Ctx, type Module, ago, fail, ok, store, note } from "../kit.js";
 
 export interface IndexingSettings {
 	indexnow: boolean;
@@ -175,21 +175,21 @@ function settingsForm(trusted: boolean, askKey: boolean, file = ""): FormSpec {
 	return {
 		id: "indexing:settings",
 		fields: [
-			{ kind: "toggle", key: "indexnow", label: "IndexNow", description: "Notifies Bing, Yandex, Seznam, Naver and other engines that support IndexNow." },
+			toggleField("indexnow", "IndexNow", { description: "Notifies Bing, Yandex, Seznam, Naver and other engines that support IndexNow." }),
 			...(trusted
-				? file ? [{ kind: "text", key: "file", label: "Key file, served automatically", when: on } as const] : []
+				? file ? [textField("file", "Key file, served automatically", { when: on })] : []
 				: [
-						...(file ? [{ kind: "text", key: "file", label: `Add this file to the site root, containing only ${file.slice(-36, -4)}`, when: on } as const] : []),
-						{ kind: "toggle", key: "keyFile", label: "The key file is in place", when: on } as const,
+						...(file ? [textField("file", `Add this file to the site root, containing only ${file.slice(-36, -4)}`, { when: on })] : []),
+						toggleField("keyFile", "The key file is in place", { when: on }),
 					]),
-			{ kind: "toggle", key: "google", label: "Google Indexing API", description: "Google only acts on these for job postings and livestream pages." },
+			toggleField("google", "Google Indexing API", { description: "Google only acts on these for job postings and livestream pages." }),
 			...(askKey ? [{ kind: "secret", key: "googleKey", label: "Google service account key (JSON)", when: { field: "google", eq: true } } as const] : []),
-			{ kind: "toggle", key: "onPublish", label: "Send automatically when an entry is published or updated" },
+			toggleField("onPublish", "Send automatically when an entry is published or updated"),
 			{ kind: "collections", key: "collections", label: "Only these collections", description: "None ticked means every collection." },
 		],
 	};
 }
-const MANUAL: FormSpec = { id: "indexing:submit", submitLabel: "Send", fields: [{ kind: "text", key: "urls", label: "Pages to send (one address per line)", multiline: true }] };
+const MANUAL: FormSpec = { id: "indexing:submit", submitLabel: "Send", fields: [textField("urls", "Pages to send (one address per line)", { multiline: true })] };
 
 export const indexing: Module = {
 	id: "indexing",
@@ -213,7 +213,7 @@ export const indexing: Module = {
 				const hasKey = await secrets.has(ctx.settings, GOOGLE_KEY_SECRET);
 				const askKey = !env.modules.some((module) => module.id === "reports");
 				const blocks: Block[] = [
-					{ type: "context", text: "Tell search engines about new and changed pages right away, instead of waiting for them to crawl the sitemap." },
+					note("Tell search engines about new and changed pages right away, instead of waiting for them to crawl the sitemap."),
 					formBlock(await withCollections(ctx, settingsForm(env.trusted, askKey, file)), { ...settings, file }, { googleKey: hasKey }),
 				];
 				if (settings.google && !askKey && !hasKey) {
@@ -247,7 +247,7 @@ export const indexing: Module = {
 			async render(ctx, _env, entry) {
 				const settings = await indexingSection.load(ctx.settings);
 				if (!settings.indexnow && !settings.google) return [];
-				if (!entry.url) return [{ type: "context", text: "Publish this entry to send it to search engines." }];
+				if (!entry.url) return [note("Publish this entry to send it to search engines.")];
 				const last = await log(ctx).query({ where: { entryKey: `${entry.collection}:${entry.id}` }, orderBy: { at: "desc" }, limit: 4 });
 				return [
 					{

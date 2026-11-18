@@ -348,6 +348,8 @@ export async function request(ctx: Ctx, url: string, init?: RequestInit): Promis
 
 export const ok = (message: string): ActResult => ({ toast: { type: "success", message } });
 export const fail = (message: string): ActResult => ({ toast: { type: "error", message } });
+/** A line of explanatory text. */
+export const note = (text: string): Block => ({ type: "context", text });
 
 /** Short "3 days ago" style text for a past ISO date. */
 export function ago(iso: string | null | undefined, now = Date.now()): string {

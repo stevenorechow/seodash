@@ -131,136 +131,11 @@ function offer(v: Reader, keys: { price: string; currency: string }, extra: Node
 }
 
 /** schema.org LocalBusiness and its common subtypes. */
-export const BUSINESS_TYPES = [
-	"LocalBusiness",
-	"AnimalShelter",
-	"AutomotiveBusiness",
-	"AutoBodyShop",
-	"AutoDealer",
-	"AutoPartsStore",
-	"AutoRental",
-	"AutoRepair",
-	"AutoWash",
-	"GasStation",
-	"MotorcycleDealer",
-	"MotorcycleRepair",
-	"ChildCare",
-	"DryCleaningOrLaundry",
-	"EmergencyService",
-	"FireStation",
-	"Hospital",
-	"PoliceStation",
-	"EmploymentAgency",
-	"EntertainmentBusiness",
-	"AmusementPark",
-	"ArtGallery",
-	"Casino",
-	"ComedyClub",
-	"MovieTheater",
-	"NightClub",
-	"FinancialService",
-	"AccountingService",
-	"AutomatedTeller",
-	"BankOrCreditUnion",
-	"InsuranceAgency",
-	"FoodEstablishment",
-	"Bakery",
-	"BarOrPub",
-	"Brewery",
-	"CafeOrCoffeeShop",
-	"FastFoodRestaurant",
-	"IceCreamShop",
-	"Restaurant",
-	"Winery",
-	"GovernmentOffice",
-	"PostOffice",
-	"HealthAndBeautyBusiness",
-	"BeautySalon",
-	"DaySpa",
-	"HairSalon",
-	"HealthClub",
-	"NailSalon",
-	"TattooParlor",
-	"HomeAndConstructionBusiness",
-	"Electrician",
-	"GeneralContractor",
-	"HVACBusiness",
-	"HousePainter",
-	"Locksmith",
-	"MovingCompany",
-	"Plumber",
-	"RoofingContractor",
-	"InternetCafe",
-	"MedicalBusiness",
-	"Dentist",
-	"MedicalClinic",
-	"Optician",
-	"Pharmacy",
-	"Physician",
-	"VeterinaryCare",
-	"LegalService",
-	"Attorney",
-	"Notary",
-	"Library",
-	"LodgingBusiness",
-	"BedAndBreakfast",
-	"Campground",
-	"Hostel",
-	"Hotel",
-	"Motel",
-	"Resort",
-	"ProfessionalService",
-	"RadioStation",
-	"RealEstateAgent",
-	"RecyclingCenter",
-	"SelfStorage",
-	"ShoppingCenter",
-	"SportsActivityLocation",
-	"BowlingAlley",
-	"ExerciseGym",
-	"GolfCourse",
-	"PublicSwimmingPool",
-	"SkiResort",
-	"SportsClub",
-	"StadiumOrArena",
-	"TennisComplex",
-	"Store",
-	"BikeStore",
-	"BookStore",
-	"ClothingStore",
-	"ComputerStore",
-	"ConvenienceStore",
-	"DepartmentStore",
-	"ElectronicsStore",
-	"Florist",
-	"FurnitureStore",
-	"GardenStore",
-	"GroceryStore",
-	"HardwareStore",
-	"HobbyShop",
-	"HomeGoodsStore",
-	"JewelryStore",
-	"LiquorStore",
-	"MensClothingStore",
-	"MobilePhoneStore",
-	"MusicStore",
-	"OfficeEquipmentStore",
-	"OutletStore",
-	"PawnShop",
-	"PetStore",
-	"ShoeStore",
-	"SportingGoodsStore",
-	"TireShop",
-	"ToyStore",
-	"WholesaleStore",
-	"TelevisionStation",
-	"TouristInformationCenter",
-	"TravelAgency",
-];
+export const BUSINESS_TYPES = "LocalBusiness AnimalShelter AutomotiveBusiness AutoBodyShop AutoDealer AutoPartsStore AutoRental AutoRepair AutoWash GasStation MotorcycleDealer MotorcycleRepair ChildCare DryCleaningOrLaundry EmergencyService FireStation Hospital PoliceStation EmploymentAgency EntertainmentBusiness AmusementPark ArtGallery Casino ComedyClub MovieTheater NightClub FinancialService AccountingService AutomatedTeller BankOrCreditUnion InsuranceAgency FoodEstablishment Bakery BarOrPub Brewery CafeOrCoffeeShop FastFoodRestaurant IceCreamShop Restaurant Winery GovernmentOffice PostOffice HealthAndBeautyBusiness BeautySalon DaySpa HairSalon HealthClub NailSalon TattooParlor HomeAndConstructionBusiness Electrician GeneralContractor HVACBusiness HousePainter Locksmith MovingCompany Plumber RoofingContractor InternetCafe MedicalBusiness Dentist MedicalClinic Optician Pharmacy Physician VeterinaryCare LegalService Attorney Notary Library LodgingBusiness BedAndBreakfast Campground Hostel Hotel Motel Resort ProfessionalService RadioStation RealEstateAgent RecyclingCenter SelfStorage ShoppingCenter SportsActivityLocation BowlingAlley ExerciseGym GolfCourse PublicSwimmingPool SkiResort SportsClub StadiumOrArena TennisComplex Store BikeStore BookStore ClothingStore ComputerStore ConvenienceStore DepartmentStore ElectronicsStore Florist FurnitureStore GardenStore GroceryStore HardwareStore HobbyShop HomeGoodsStore JewelryStore LiquorStore MensClothingStore MobilePhoneStore MusicStore OfficeEquipmentStore OutletStore PawnShop PetStore ShoeStore SportingGoodsStore TireShop ToyStore WholesaleStore TelevisionStation TouristInformationCenter TravelAgency".split(" ");
 
 export const businessTypeField = (key: string): FieldSpec => pick(key, "Business type", BUSINESS_TYPES, { HVACBusiness: "HVAC business", LocalBusiness: "Local business (general)" });
 
-const FOOD_TYPES = new Set(["FoodEstablishment", "Bakery", "BarOrPub", "Brewery", "CafeOrCoffeeShop", "FastFoodRestaurant", "IceCreamShop", "Restaurant", "Winery"]);
+const FOOD_TYPES = new Set("FoodEstablishment Bakery BarOrPub Brewery CafeOrCoffeeShop FastFoodRestaurant IceCreamShop Restaurant Winery".split(" "));
 
 export const HOURS_HELP = "Opening hours: one line per day or range of days, e.g. “Mon-Fri 09:00-12:00, 14:00-18:00”. Leave a day out when closed.";
 
@@ -357,7 +232,7 @@ function make(id: string, label: string, schemaType: string, rows: Row[], defaul
 	};
 }
 
-const ARTICLE_TYPES = ["Article", "NewsArticle", "BlogPosting", "TechArticle", "ScholarlyArticle", "Report", "SocialMediaPosting", "LiveBlogPosting", "AdvertiserContentArticle", "SatiricalArticle", "AnalysisNewsArticle", "AskPublicNewsArticle", "BackgroundNewsArticle", "OpinionNewsArticle", "ReportageNewsArticle", "ReviewNewsArticle"];
+const ARTICLE_TYPES = "Article NewsArticle BlogPosting TechArticle ScholarlyArticle Report SocialMediaPosting LiveBlogPosting AdvertiserContentArticle SatiricalArticle AnalysisNewsArticle AskPublicNewsArticle BackgroundNewsArticle OpinionNewsArticle ReportageNewsArticle ReviewNewsArticle".split(" ");
 
 const article = make(
 	"article",
@@ -579,7 +454,7 @@ const video = make(
 	(v, b) => ({ duration: isoDuration(v.text("duration"), "seconds"), publisher: b.publisher }),
 );
 
-const EVENT_TYPES = ["Event", "BusinessEvent", "ChildrensEvent", "ComedyEvent", "CourseInstance", "DanceEvent", "DeliveryEvent", "EducationEvent", "ExhibitionEvent", "Festival", "FoodEvent", "LiteraryEvent", "MusicEvent", "PublicationEvent", "SaleEvent", "ScreeningEvent", "SocialEvent", "SportsEvent", "TheaterEvent", "VisualArtsEvent"];
+const EVENT_TYPES = "Event BusinessEvent ChildrensEvent ComedyEvent CourseInstance DanceEvent DeliveryEvent EducationEvent ExhibitionEvent Festival FoodEvent LiteraryEvent MusicEvent PublicationEvent SaleEvent ScreeningEvent SocialEvent SportsEvent TheaterEvent VisualArtsEvent".split(" ");
 const EVENT_STATUS = ["", "EventScheduled", "EventMovedOnline", "EventRescheduled", "EventPostponed", "EventCancelled"];
 const ATTENDANCE = ["", "OfflineEventAttendanceMode", "OnlineEventAttendanceMode", "MixedEventAttendanceMode"];
 const AVAILABILITY = ["", "InStock", "OutOfStock", "PreOrder", "SoldOut", "BackOrder", "LimitedAvailability", "OnlineOnly", "InStoreOnly", "Discontinued"];
@@ -675,7 +550,7 @@ const product = make(
 	{ note: "Pros and cons take one item per line." },
 );
 
-const APP_CATEGORIES = ["", "GameApplication", "SocialNetworkingApplication", "TravelApplication", "ShoppingApplication", "SportsApplication", "LifestyleApplication", "BusinessApplication", "DesignApplication", "DeveloperApplication", "DriverApplication", "EducationalApplication", "HealthApplication", "FinanceApplication", "SecurityApplication", "BrowserApplication", "CommunicationApplication", "DesktopEnhancementApplication", "EntertainmentApplication", "MultimediaApplication", "HomeApplication", "UtilitiesApplication", "ReferenceApplication"];
+const APP_CATEGORIES = ["", ..."GameApplication SocialNetworkingApplication TravelApplication ShoppingApplication SportsApplication LifestyleApplication BusinessApplication DesignApplication DeveloperApplication DriverApplication EducationalApplication HealthApplication FinanceApplication SecurityApplication BrowserApplication CommunicationApplication DesktopEnhancementApplication EntertainmentApplication MultimediaApplication HomeApplication UtilitiesApplication ReferenceApplication".split(" ")];
 
 const software = make(
 	"softwareapp",
@@ -733,7 +608,7 @@ const service = make(
 	}),
 );
 
-const REVIEWED = ["Thing", "Book", "Course", "CreativeWorkSeason", "CreativeWorkSeries", "Episode", "Event", "Game", "LocalBusiness", "MediaObject", "Movie", "MusicPlaylist", "MusicRecording", "Organization", "Product", "Recipe", "SoftwareApplication"];
+const REVIEWED = "Thing Book Course CreativeWorkSeason CreativeWorkSeries Episode Event Game LocalBusiness MediaObject Movie MusicPlaylist MusicRecording Organization Product Recipe SoftwareApplication".split(" ");
 
 const review = make(
 	"review",

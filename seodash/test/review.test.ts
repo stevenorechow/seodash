@@ -151,7 +151,8 @@ describe("the audit scan", () => {
 		expect(await done()).toBe(-1);
 		// A second pass reports progress against the entries the first one found.
 		const again = await h.press("/overview", "audit:scan");
-		expect(String(again.toast?.message)).toMatch(/^Scanned \d+ of 14\./);
+		expect(again.toast).toBeUndefined();
+		expect(textOf(again)).toMatch(/Scanning again: \d+ of 14|Last scanned/);
 		expect(textOf(await h.page("/overview"))).toMatch(/Scanning again: \d+ of 14|Last scanned/);
 	});
 });

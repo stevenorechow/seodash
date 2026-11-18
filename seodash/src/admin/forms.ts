@@ -27,6 +27,11 @@ export type FieldSpec =
 	/** Write-only: shows whether a value is saved; an empty submission keeps it. Not part of the values object. */
 	| (Shared & { kind: "secret"; placeholder?: string });
 
+type Field<K extends FieldSpec["kind"]> = Extract<FieldSpec, { kind: K }>;
+/** Short forms of the two most common fields. */
+export const textField = (key: string, label: string, more: Partial<Field<"text">> = {}): FieldSpec => ({ kind: "text", key, label, ...more });
+export const toggleField = (key: string, label: string, more: Partial<Field<"toggle">> = {}): FieldSpec => ({ kind: "toggle", key, label, ...more });
+
 export interface FormSpec {
 	/** Identifies the form in a submission (`action_id` of its Save button). */
 	id: string;

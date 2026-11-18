@@ -38,6 +38,7 @@ type Site = ReturnType<typeof site>;
 const cron = (h: Site) => h.built.hooks.cron({ name: "audit-scan" }, h.ctx);
 const rowsOf = (h: Site) => new Map([...h.ctx.collection("audit").data.entries()].map(([id, row]) => [id, { ...(row as AuditRow), scannedAt: "" }]));
 const underWay = (h: Site) => h.ctx.kv.get("audit:cursor");
+const table = (response: { blocks: Array<{ type: string }> }) => response.blocks.find((block) => block.type === "table") as unknown as { rows: Array<Record<string, any>>; next_cursor?: string };
 
 async function scanAll(h: Site): Promise<number> {
 	let runs = 0;
@@ -89,7 +90,7 @@ describe("site scan", () => {
 	it("reports progress from the button and finishes on later presses", async () => {
 		const h = site();
 		const first = await h.press("/", "audit:scan");
-		expect(first.toast).toEqual({ type: "info", message: "Scanned 42 entries. Press again or reload to continue; it also carries on by itself." });
+		expect(first.toast).toBeUndefined();
 		// Rendering the page after the press carried the scan on by another batch.
 		expect(textOf(first)).toContain("Scanning: 82 entries so far.");
 		expect(textOf(first)).toContain("Continue the scan");
@@ -98,7 +99,7 @@ describe("site scan", () => {
 		expect(last.toast).toEqual({ type: "success", message: "Scan complete: 95 entries" });
 		// A later scan counts against the entries the last one found.
 		const again = await h.press("/", "audit:scan");
-		expect(again.toast?.message).toBe("Scanned 42 of 95. Press again or reload to continue; it also carries on by itself.");
+		expect(again.toast).toBeUndefined();
 		expect(textOf(again)).toContain("Scanning again: 82 of 95.");
 	});
 });
@@ -186,6 +187,59 @@ describe("overview", () => {
 		expect((widget.blocks.find((block) => block.type === "table") as { rows: unknown[] }).rows).toHaveLength(3);
 	});
 
+	it("lists the entries behind each finding, with links to edit them", async () => {
+		const h = site();
+		await scanAll(h);
+		const page = await h.page("/");
+		valid(page);
+		const accordions = page.blocks.filter((block) => block.type === "accordion") as Array<{ label: string; blocks: Array<Record<string, any>> }>;
+		const titles = accordions.find((block) => block.label.includes("Search title used by more than one entry"))!;
+		expect(titles.label).toBe("Fix: Search title used by more than one entry (2 entries)");
+		// What to do, then the entries.
+		expect(titles.blocks[0]).toMatchObject({ type: "context" });
+		const rows = titles.blocks.find((block) => block.type === "table")!.rows as Array<Record<string, any>>;
+		expect(rows.map((row) => row.edit.target.id).sort()).toEqual(["p1", "p2"]);
+		expect(rows[0]!.edit.target).toMatchObject({ kind: "content", collection: "posts" });
+		expect(rows[0]).toMatchObject({ collection: "Posts", detail: "Shared title" });
+		// A finding with more entries than fit offers the whole list on the Content tab.
+		const thin = accordions.find((block) => block.label.includes("Thin content"))!;
+		expect(thin.blocks.find((block) => block.type === "table")!.rows).toHaveLength(10);
+		const button = thin.blocks.find((block) => block.type === "actions")!.elements[0];
+		expect(button).toMatchObject({ action_id: "audit:show", value: "thin" });
+		expect(button.label).toMatch(/^Show all \d+$/);
+		const shown = await h.press("/", "audit:show", "thin");
+		valid(shown);
+		expect(await h.ctx.kv.get("audit:view")).toMatchObject({ collection: "all", show: "thin" });
+		expect(table(shown).rows.length).toBeGreaterThan(10);
+		expect(table(shown).rows.every((row) => String(row.issues).includes("Thin"))).toBe(true);
+		// Unknown findings change nothing.
+		await h.press("/", "audit:show", "nonsense");
+		expect(await h.ctx.kv.get("audit:view")).toMatchObject({ show: "thin" });
+	});
+
+	it("asks for a new scan where an older summary has no entry lists", async () => {
+		const h = site();
+		await scanAll(h);
+		const summary = (await auditSummary(h.ctx))!;
+		await h.ctx.kv.set("audit:summary", { ...summary, findings: summary.findings.map(({ entries: _, ...finding }) => finding) });
+		const page = await h.page("/");
+		valid(page);
+		const accordion = page.blocks.find((block) => block.type === "accordion") as { blocks: Array<Record<string, any>> };
+		expect(accordion.blocks.some((block) => block.type === "table")).toBe(false);
+		expect(accordion.blocks.find((block) => block.type === "actions")!.elements[0].label).toBe("Show the entries");
+	});
+
+	it("links the dashboard widget to the entries to fix first", async () => {
+		const h = site();
+		await scanAll(h);
+		const widget = await h.page("widget:health");
+		valid(widget);
+		const rows = (widget.blocks.find((block) => block.type === "table") as { rows: Array<Record<string, any>> }).rows;
+		expect(rows[0]!.edit).toMatchObject({ type: "link", label: "Edit", target: { kind: "content" } });
+		expect(rows[0]!.finding).toBe("Search title used by more than one entry");
+		expect(new Set(rows.map((row) => row.edit.target.id)).size).toBe(rows.length);
+	});
+
 	it("draws the trend once there are two scores", async () => {
 		const h = site();
 		await scanAll(h);
@@ -206,7 +260,6 @@ describe("overview", () => {
 });
 
 describe("entries table", () => {
-	const table = (response: { blocks: Array<{ type: string }> }) => response.blocks.find((block) => block.type === "table") as unknown as { rows: Array<Record<string, any>>; next_cursor?: string };
 
 	it("links each entry to its editor, worst score first, and pages through the list", async () => {
 		const h = site();
@@ -235,9 +288,11 @@ describe("entries table", () => {
 		// A fresh page load still has the filter.
 		expect(table(await h.page("/content")).rows).toHaveLength(2);
 
-		const duplicates = await h.submit("/content", "audit:filter", { collection: "all", show: "duplicates" });
-		expect(table(duplicates).rows.map((row) => row.edit.target.id).sort()).toEqual(["p1", "p2", "p3"]);
-		const missing = await h.submit("/content", "audit:filter", { collection: "posts", show: "nodescription" });
+		const duplicates = await h.submit("/content", "audit:filter", { collection: "all", show: "duplicate-titles" });
+		expect(table(duplicates).rows.map((row) => row.edit.target.id).sort()).toEqual(["p1", "p2"]);
+		const sameDescription = await h.submit("/content", "audit:filter", { collection: "all", show: "duplicate-descriptions" });
+		expect(table(sameDescription).rows.map((row) => row.edit.target.id)).toContain("p3");
+		const missing = await h.submit("/content", "audit:filter", { collection: "posts", show: "no-description" });
 		expect(table(missing).rows.map((row) => row.edit.target.id)).toEqual(["p5"]);
 		const untitled = await h.submit("/content", "audit:filter", { collection: "pages", show: "notitle" });
 		expect(table(untitled).rows).toHaveLength(2);

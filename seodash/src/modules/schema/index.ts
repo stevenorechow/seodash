@@ -16,7 +16,7 @@
 import { formBlock, type FieldSpec, type FormSpec, readForm } from "../../admin/forms.js";
 import { defineSection } from "../../core/settings.js";
 import { VARIABLE_HELP, type VariableContext, renderTemplate } from "../../core/variables.js";
-import { type Action, type ActResult, type Block, type Contribution, type Ctx, type EntryView, type Env, type HeadState, type Module, type PageState, type PageTab, all, fail, isRecord, ok, store, str } from "../../kit.js";
+import { type Action, type ActResult, type Block, type Contribution, type Ctx, type EntryView, type Env, type HeadState, type Module, type PageState, type PageTab, all, fail, isRecord, ok, store, str, note } from "../../kit.js";
 import { type SiteIdentity, identityOf, variablesFor } from "../meta.js";
 import { HOURS, OUTPUT, type OutputSettings, type Site, breadcrumbNode, isHome, localForm, localNode, localSection, outputSection, publisherForm, publisherId, publisherNode, publisherSection, siteOf, websiteId, websiteNode } from "./site.js";
 import { missingRequired } from "./required.js";
@@ -332,10 +332,10 @@ async function renderPanel(ctx: Ctx, env: Env, view: EntryView): Promise<Block[]
 		const saved = editing?.data.values ?? {};
 		const values: Values = { ...type.defaults, ...saved, ...marker?.draft };
 		blocks.push({ type: "divider" }, { type: "section", text: editing ? `Edit: ${type.label}` : `New: ${type.label}` });
-		if (type.note) blocks.push({ type: "context", text: type.note });
-		blocks.push(formBlock({ id: editing ? `schema:save/${editing.id}` : `schema:save/new/${type.id}`, fields: type.fields }, values), cancelButton("schema:cancel"), { type: "context", text: VARIABLES_NOTE });
+		if (type.note) blocks.push(note(type.note));
+		blocks.push(formBlock({ id: editing ? `schema:save/${editing.id}` : `schema:save/new/${type.id}`, fields: type.fields }, values), cancelButton("schema:cancel"), note(VARIABLES_NOTE));
 		const preview = editing ? build(type, saved) : [];
-		if (preview.length) blocks.push({ type: "context", text: "What is printed now:" }, { type: "code", code: JSON.stringify(preview.length === 1 ? preview[0] : preview, null, 2).slice(0, 6000), language: "jsonc" });
+		if (preview.length) blocks.push(note("What is printed now:"), { type: "code", code: JSON.stringify(preview.length === 1 ? preview[0] : preview, null, 2).slice(0, 6000), language: "jsonc" });
 	}
 	return blocks;
 }
@@ -419,7 +419,7 @@ async function renderRules(ctx: Ctx, state: PageState): Promise<Block[]> {
 	const rules = stored.rules;
 	const blocks: Block[] = [];
 	if (!output.enabled) blocks.push({ type: "banner", description: "Structured data is switched off, so rules are not printed yet. Switch it on under Output." });
-	blocks.push({ type: "context", text: "A rule prints one type of structured data on every entry of a collection, filled from its values. An entry's own structured data of that type wins." });
+	blocks.push(note("A rule prints one type of structured data on every entry of a collection, filled from its values. An entry's own structured data of that type wins."));
 	if (!collections.length) return [...blocks, { type: "empty", title: "No collections found", size: "sm" }];
 
 	const labelOf = (slug: string) => collections.find((collection) => collection.slug === slug)?.label ?? slug;
@@ -462,7 +462,7 @@ async function renderRules(ctx: Ctx, state: PageState): Promise<Block[]> {
 	}
 	if (type) {
 		blocks.push({ type: "divider" }, { type: "section", text: target.startsWith("new/") ? `New rule: ${type.label}` : `Edit rule: ${type.label}` });
-		if (type.note) blocks.push({ type: "context", text: type.note });
+		if (type.note) blocks.push(note(type.note));
 		blocks.push(formBlock(ruleForm(`schema:rule-save/${target}`, type, collections), { ...type.defaults, ...values, ruleCollection: collection }), cancelButton("schema:rule-cancel"), {
 			type: "context",
 			text: `${VARIABLES_NOTE} Use %%_cf_field%% to read any field of the entry.`,
@@ -533,7 +533,7 @@ export const schema: Module = {
 				return [
 					...(output.enabled ? [] : [OFF]),
 					formBlock(OUTPUT, output),
-					{ type: "context", text: "To search engines the site search URL is a template: keep {search_term_string} where the search words go." },
+					note("To search engines the site search URL is a template: keep {search_term_string} where the search words go."),
 				];
 			},
 		}),
@@ -545,7 +545,7 @@ export const schema: Module = {
 			async render(ctx, env) {
 				const [settings, identity] = await Promise.all([publisherSection.load(ctx.settings), identityOf(ctx, env)]);
 				return [
-					{ type: "context", text: "Who is behind the site. Search engines use this for the site's name, logo and contact details." },
+					note("Who is behind the site. Search engines use this for the site's name, logo and contact details."),
 					formBlock(publisherForm(ctx.site.name), settings),
 					{
 						type: "fields",
@@ -554,7 +554,7 @@ export const schema: Module = {
 							{ label: "Profiles", value: identity.profiles.length ? identity.profiles.join(", ") : "None" },
 						],
 					},
-					{ type: "context", text: "The site's social profiles are added automatically. Manage them under Social." },
+					note("The site's social profiles are added automatically. Manage them under Social."),
 				];
 			},
 		}),
@@ -566,9 +566,9 @@ export const schema: Module = {
 			async render(ctx) {
 				const settings = await localSection.load(ctx.settings);
 				return [
-					{ type: "context", text: "For a business with a physical location or a service area: its address, contact details and opening hours." },
+					note("For a business with a physical location or a service area: its address, contact details and opening hours."),
 					formBlock(localForm(ctx.site.name), settings),
-					{ type: "accordion", label: "Opening hours", default_open: settings.enabled, blocks: [{ type: "context", text: "Times in 24-hour form, e.g. 09:00. Use the second pair for a business that closes in the middle of the day." }, formBlock(HOURS, settings)] },
+					{ type: "accordion", label: "Opening hours", default_open: settings.enabled, blocks: [note("Times in 24-hour form, e.g. 09:00. Use the second pair for a business that closes in the middle of the day."), formBlock(HOURS, settings)] },
 				];
 			},
 		}),
