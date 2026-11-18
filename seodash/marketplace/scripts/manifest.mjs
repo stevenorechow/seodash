@@ -1,7 +1,7 @@
 // Writes emdash-plugin.jsonc from what the feature modules declare, so the manifest (the trust
 // contract) cannot drift from the code. Run `npm run build` in the package root first.
 //   node scripts/manifest.mjs
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { compose } from "../../dist/compose.js";
 import { MODULES } from "../../dist/modules/index.js";
 
@@ -34,7 +34,12 @@ const manifest = {
 		faq: { file: "listing/faq.md" },
 		changelog: { file: "listing/changelog.md" },
 	},
-	release: { artifacts: { icon: { file: "icon.png" } } },
+	release: {
+		artifacts: {
+			icon: { file: "icon.png" },
+			screenshots: readdirSync(new URL("../listing/screenshots/", import.meta.url)).filter((f) => f.endsWith(".png")).sort().map((f) => ({ file: `listing/screenshots/${f}` })),
+		},
+	},
 	// The only content the modules write is an entry's core SEO fields, which EmDash 1.5 refuses from the
 	// sandbox (the panel shows them read-only), so this build does not ask to edit content.
 	capabilities: [...built.capabilities.filter((capability) => capability !== "content:write"), ...(built.uses.beforePublish ? ["hooks.content-policy:register"] : [])].sort(),

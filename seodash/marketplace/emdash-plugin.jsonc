@@ -11,7 +11,7 @@
 		"indexnow",
 		"audit"
 	],
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"license": "GPL-3.0-only",
 	"publisher": "did:plc:cyexkjh5tyjfipyznr7kz2so",
 	"author": {
@@ -40,7 +40,30 @@
 		"artifacts": {
 			"icon": {
 				"file": "icon.png"
-			}
+			},
+			"screenshots": [
+				{
+					"file": "listing/screenshots/1-editor-panel.png"
+				},
+				{
+					"file": "listing/screenshots/2-content-analysis.png"
+				},
+				{
+					"file": "listing/screenshots/3-overview.png"
+				},
+				{
+					"file": "listing/screenshots/4-content.png"
+				},
+				{
+					"file": "listing/screenshots/5-titles.png"
+				},
+				{
+					"file": "listing/screenshots/6-dashboard.png"
+				},
+				{
+					"file": "listing/screenshots/7-features.png"
+				}
+			]
 		}
 	},
 	"capabilities": [
