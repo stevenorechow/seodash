@@ -1,0 +1,43 @@
+{
+  "name": "seodash",
+  "version": "1.0.0",
+  "description": "SEO for EmDash: titles and meta, social cards, structured data, content analysis, site audit, instant indexing and publishing rules.",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "files": [
+    "dist",
+    "src",
+    "docs",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin.d.ts",
+      "default": "./dist/plugin.js"
+    },
+    "./site": {
+      "types": "./dist/site.d.ts",
+      "default": "./dist/site.js"
+    },
+    "./routes/*": "./dist/routes/*.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "emdash": "^1.5.0"
+  },
+  "devDependencies": {
+    "@emdash-cms/blocks": "^1.5.0",
+    "emdash": "^1.5.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
