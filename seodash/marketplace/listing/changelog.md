@@ -1,3 +1,13 @@
+## 1.0.3
+
+- **Leave entries out of the audit**, such as a 404 page, with the Leave out button on each finding; put them back from the Content tab. Settings → Audit limits the audit to chosen collections.
+- **Hidden entries** count only as hidden, not as thin or missing a description.
+- **IndexNow key file** downloads from the Indexing tab.
+- **Editor panel.** The sharing image is set with EmDash's OG Image field and its media library picker. The panel shows only what it can change.
+- **Settings.** Help folded into labels.
+- **Google Indexing API removed** to fit the registry size limit. Google only uses it for job postings and livestreams. IndexNow is unchanged.
+- **X title, description and image** fields show only where an entry already has one; X uses the sharing values otherwise.
+
 ## 1.0.2
 
 - **Every finding names its entries.** The Overview lists the entries behind each finding, worst first, with an Edit link and what to change. "Show all" opens the Content tab filtered to that finding.

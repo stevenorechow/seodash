@@ -6,12 +6,12 @@
  *
  * - IndexNow (Bing, Yandex, Seznam, Naver and others) needs a key file at the site root. The
  *   trusted build serves it through `seodashRoutes()`; the key itself is generated here.
- * - Google's Indexing API uses the service-account key shared with the other Google features.
+ * - Google's Indexing API, in builds that pass the engine in `google-indexing.ts` (it uses the
+ *   service-account key shared with the other Google features). The free build leaves it out.
  *
  * Off by default: it makes outbound requests.
  */
 import { formBlock, type FormSpec, readForm, readSecrets, withCollections, textField, toggleField } from "../admin/forms.js";
-import { GOOGLE_KEY_SECRET, googleMessage, googleToken, parseServiceAccount } from "../core/google.js";
 import { defineSection, secrets } from "../core/settings.js";
 import { type ActResult, type Block, type Ctx, type Module, ago, fail, ok, store, note } from "../kit.js";
 
@@ -33,7 +33,7 @@ export interface IndexingSettings {
 
 export const indexingSection = defineSection<IndexingSettings>("indexing", { indexnow: false, google: false, onPublish: true, collections: "", key: "", keyFile: false });
 
-interface LogRow {
+export interface LogRow {
 	url: string;
 	engine: "IndexNow" | "Google";
 	action: "updated" | "removed";
@@ -88,37 +88,14 @@ async function submitIndexNow(ctx: Ctx, settings: IndexingSettings, urls: string
 	return urls.map((url) => ({ url, engine: "IndexNow", action: "updated", status, ok: status === 200 || status === 202, message, entryKey, at }));
 }
 
-async function submitGoogle(ctx: Ctx, urls: string[], action: "updated" | "removed", entryKey: string): Promise<LogRow[]> {
-	const at = new Date().toISOString();
-	const account = parseServiceAccount(await secrets.get(ctx.settings, GOOGLE_KEY_SECRET));
-	if (!account) return urls.map((url) => ({ url, engine: "Google", action, status: 0, ok: false, message: "No Google service account key is saved", entryKey, at }));
-	const rows: LogRow[] = [];
-	let token: string;
-	try {
-		token = await googleToken(ctx, account, "https://www.googleapis.com/auth/indexing");
-	} catch (error) {
-		const message = error instanceof Error ? error.message.slice(0, 160) : "Sign-in failed";
-		return urls.map((url) => ({ url, engine: "Google", action, status: 0, ok: false, message, entryKey, at }));
-	}
-	for (const url of urls) {
-		let status = 0;
-		let message = "";
-		try {
-			const response = await ctx.http!.fetch("https://indexing.googleapis.com/v3/urlNotifications:publish", {
-				method: "POST",
-				headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-				body: JSON.stringify({ url, type: action === "removed" ? "URL_DELETED" : "URL_UPDATED" }),
-				signal: AbortSignal.timeout(15000),
-			});
-			status = response.status;
-			if (response.ok) message = "Accepted";
-			else message = googleMessage(((await response.json().catch(() => ({}))) as { error?: { message?: string } }).error?.message ?? "").slice(0, 220) || `HTTP ${status}`;
-		} catch (error) {
-			message = error instanceof Error ? error.message.slice(0, 120) : "Request failed";
-		}
-		rows.push({ url, engine: "Google", action, status, ok: status >= 200 && status < 300, message, entryKey, at });
-	}
-	return rows;
+/** A second engine: Google's Indexing API, passed in by the builds that include it. */
+export interface GoogleEngine {
+	/** The plugin secret holding the service-account key. */
+	secret: string;
+	hosts: string[];
+	/** Null when the pasted text is not a service-account key. */
+	parse(json: string): unknown;
+	submit(ctx: Ctx, urls: string[], action: "updated" | "removed", entryKey: string): Promise<LogRow[]>;
 }
 
 /** Only URLs of this site are ever submitted. */
@@ -142,14 +119,14 @@ function ownUrls(ctx: Ctx, urls: string[]): string[] {
 }
 
 /** Submits URLs to every engine that is switched on. Returns the log rows written. */
-export async function submitUrls(ctx: Ctx, urls: string[], action: "updated" | "removed" = "updated", entryKey = ""): Promise<LogRow[]> {
+async function submitUrls(ctx: Ctx, google: GoogleEngine | undefined, urls: string[], action: "updated" | "removed" = "updated", entryKey = ""): Promise<LogRow[]> {
 	const settings = await indexingSection.load(ctx.settings);
 	const list = ownUrls(ctx, urls);
 	if (!list.length || !ctx.http) return [];
 	const rows: LogRow[] = [];
 	// IndexNow has no "removed" signal: a removed URL is simply re-fetched and found gone.
 	if (settings.indexnow && settings.key) rows.push(...(await submitIndexNow(ctx, settings, list, entryKey)));
-	if (settings.google) rows.push(...(await submitGoogle(ctx, list, action, entryKey)));
+	if (google && settings.google) rows.push(...(await google.submit(ctx, list, action, entryKey)));
 	if (rows.length) await record(ctx, rows);
 	return rows;
 }
@@ -160,7 +137,7 @@ const covers = (settings: IndexingSettings, collection: string) => {
 };
 
 const summary = (rows: LogRow[]): ActResult => {
-	if (!rows.length) return fail("Nothing was sent. Switch on IndexNow or Google first.");
+	if (!rows.length) return fail("Nothing was sent. Switch on an engine first.");
 	const failed = rows.filter((row) => !row.ok);
 	return failed.length ? fail(`${failed[0]!.engine}: ${failed[0]!.message}`) : ok(`Sent to ${[...new Set(rows.map((row) => row.engine))].join(" and ")}`);
 };
@@ -170,35 +147,53 @@ const summary = (rows: LogRow[]): ActResult => {
  * the key file's address, shown for copying and never read back. `trusted` builds serve the file
  * themselves; `askKey` is false where the Google key is entered under Integrations instead.
  */
-function settingsForm(trusted: boolean, askKey: boolean, file = ""): FormSpec {
+function settingsForm(trusted: boolean, google: boolean, askKey: boolean, file = ""): FormSpec {
 	const on = { field: "indexnow", eq: true };
 	return {
 		id: "indexing:settings",
 		fields: [
-			toggleField("indexnow", "IndexNow", { description: "Notifies Bing, Yandex, Seznam, Naver and other engines that support IndexNow." }),
+			toggleField("indexnow", "IndexNow (Bing, Yandex, Naver and others)"),
 			...(trusted
 				? file ? [textField("file", "Key file, served automatically", { when: on })] : []
 				: [
-						...(file ? [textField("file", `Add this file to the site root, containing only ${file.slice(-36, -4)}`, { when: on })] : []),
+						...(file ? [textField("file", "Key file address", { when: on })] : []),
 						toggleField("keyFile", "The key file is in place", { when: on }),
 					]),
-			toggleField("google", "Google Indexing API", { description: "Google only acts on these for job postings and livestream pages." }),
-			...(askKey ? [{ kind: "secret", key: "googleKey", label: "Google service account key (JSON)", when: { field: "google", eq: true } } as const] : []),
+			...(google ? [toggleField("google", "Google Indexing API", { description: "Google only acts on these for job postings and livestream pages." })] : []),
+			...(google && askKey ? [{ kind: "secret", key: "googleKey", label: "Google service account key (JSON)", when: { field: "google", eq: true } } as const] : []),
 			toggleField("onPublish", "Send automatically when an entry is published or updated"),
-			{ kind: "collections", key: "collections", label: "Only these collections", description: "None ticked means every collection." },
+			{ kind: "collections", key: "collections", label: "Only these collections (none ticked means all)" },
 		],
 	};
 }
 const MANUAL: FormSpec = { id: "indexing:submit", submitLabel: "Send", fields: [textField("urls", "Pages to send (one address per line)", { multiline: true })] };
 
-export const indexing: Module = {
+/** The instant indexing module, with Google's Indexing API where the build passes it in. */
+export const indexingModule = (google?: GoogleEngine): Module => {
+	/** Some engine is switched on (Google counts only where the build has it). */
+	const anyOn = (settings: IndexingSettings) => settings.indexnow || (google !== undefined && settings.google);
+	return {
 	id: "indexing",
 	panelActions: ["entry"],
 	feature: { label: "Instant indexing", description: "Tells search engines about new and changed pages right away." },
-	secrets: { [GOOGLE_KEY_SECRET]: "Google service account key" },
+	...(google ? { secrets: { [google.secret]: "Google service account key" } } : {}),
 	capabilities: ["network:request", "content:read"],
-	allowedHosts: ["api.indexnow.org", "indexing.googleapis.com", "oauth2.googleapis.com"],
+	allowedHosts: ["api.indexnow.org", ...(google?.hosts ?? [])],
 	storage: { indexing: { indexes: ["at", "entryKey", ["entryKey", "at"]] } },
+	routes: {
+		// The key file as a download, named the way IndexNow expects. The key is public by design.
+		"indexnow-key": {
+			public: true,
+			methods: ["GET"],
+			request: { body: "none" },
+			response: "raw",
+			async handler(_input, ctx) {
+				const { key } = await indexingSection.load(ctx.settings);
+				if (!/^[a-f0-9]{32}$/.test(key)) return { status: 404, body: "Not found", headers: { "Content-Type": "text/plain" } };
+				return { status: 200, body: key, headers: { "Content-Type": "text/plain; charset=utf-8", "Content-Disposition": `attachment; filename="${key}.txt"` } };
+			},
+		},
+	},
 	tabs: [
 		{
 			page: "/settings",
@@ -210,16 +205,23 @@ export const indexing: Module = {
 				if (!settings.key) await indexingSection.save(ctx.settings, { ...settings, key: newKey() });
 				const key = settings.key || (await indexingSection.load(ctx.settings)).key;
 				const file = keyLocation(ctx.site.url, { key, keyFile: !env.trusted });
-				const hasKey = await secrets.has(ctx.settings, GOOGLE_KEY_SECRET);
+				const hasKey = google ? await secrets.has(ctx.settings, google.secret) : false;
 				const askKey = !env.modules.some((module) => module.id === "reports");
-				const blocks: Block[] = [
-					note("Tell search engines about new and changed pages right away, instead of waiting for them to crawl the sitemap."),
-					formBlock(await withCollections(ctx, settingsForm(env.trusted, askKey, file)), { ...settings, file }, { googleKey: hasKey }),
-				];
-				if (settings.google && !askKey && !hasKey) {
+				const blocks: Block[] = [note("Tell search engines about new and changed pages right away.")];
+				// A sandboxed plugin cannot serve a file at the site root, so the owner adds it once.
+				if (!env.trusted && !settings.keyFile && ctx.site.url) {
+					blocks.push(note("IndexNow checks for a key file at the site root. Download it, add it to the site's public folder and deploy, then switch IndexNow on."), {
+						type: "actions",
+						elements: [{ type: "link", label: "Download key file", target: { kind: "external", url: `${ctx.site.url.replace(/\/+$/, "")}/_emdash/api/plugins/${ctx.plugin.id}/indexnow-key` }, appearance: "secondary" }],
+					});
+				}
+				blocks.push(
+					formBlock(await withCollections(ctx, settingsForm(env.trusted, !!google, askKey, file)), { ...settings, file }, { googleKey: hasKey }),
+				);
+				if (google && settings.google && !askKey && !hasKey) {
 					blocks.push({ type: "banner", variant: "alert", description: "Add the Google service account key under Integrations to use the Google Indexing API." });
 				}
-				if (settings.indexnow || settings.google) {
+				if (anyOn(settings)) {
 					blocks.push({ type: "divider" }, formBlock(MANUAL, { urls: "" }));
 					const recent = await log(ctx).query({ orderBy: { at: "desc" }, limit: 20 });
 					blocks.push({
@@ -246,7 +248,7 @@ export const indexing: Module = {
 			order: 50,
 			async render(ctx, _env, entry) {
 				const settings = await indexingSection.load(ctx.settings);
-				if (!settings.indexnow && !settings.google) return [];
+				if (!anyOn(settings)) return [];
 				if (!entry.url) return [note("Publish this entry to send it to search engines.")];
 				const last = await log(ctx).query({ where: { entryKey: `${entry.collection}:${entry.id}` }, orderBy: { at: "desc" }, limit: 4 });
 				return [
@@ -263,16 +265,16 @@ export const indexing: Module = {
 	async act(ctx, env, action, entry) {
 		if (action.id === "entry" && entry) {
 			if (!entry.url) return fail("This entry has no public address yet.");
-			return summary(await submitUrls(ctx, [entry.url], "updated", `${entry.collection}:${entry.id}`));
+			return summary(await submitUrls(ctx, google, [entry.url], "updated", `${entry.collection}:${entry.id}`));
 		}
 		if (!action.values) return null;
 		if (action.id === "settings") {
-			const spec = settingsForm(env.trusted, !env.modules.some((module) => module.id === "reports"));
+			const spec = settingsForm(env.trusted, !!google, !env.modules.some((module) => module.id === "reports"));
 			const next = readForm(spec, action.values, await indexingSection.load(ctx.settings));
 			if (!env.trusted && next.indexnow && !next.keyFile) return fail("Add the key file to the site root and confirm it is in place before switching on IndexNow.");
-			const key = readSecrets(spec, action.values).googleKey;
-			if (key && !parseServiceAccount(key)) return fail("That is not a service account key. Paste the whole JSON file.");
-			if (key) await secrets.set(ctx.settings, GOOGLE_KEY_SECRET, key);
+			const key = google && readSecrets(spec, action.values).googleKey;
+			if (key && !google.parse(key)) return fail("That is not a service account key. Paste the whole JSON file.");
+			if (key) await secrets.set(ctx.settings, google.secret, key);
 			next.key ||= newKey();
 			await indexingSection.save(ctx.settings, next);
 			return ok("Saved");
@@ -280,7 +282,7 @@ export const indexing: Module = {
 		if (action.id === "submit") {
 			const urls = String(action.values.urls ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 			if (!urls.length) return fail("Enter at least one address.");
-			return summary(await submitUrls(ctx, urls));
+			return summary(await submitUrls(ctx, google, urls));
 		}
 		return null;
 	},
@@ -288,20 +290,21 @@ export const indexing: Module = {
 	on: {
 		async publish(ctx, _env, event) {
 			const settings = await indexingSection.load(ctx.settings);
-			if (!settings.onPublish || (!settings.indexnow && !settings.google) || !covers(settings, event.collection)) return;
+			if (!settings.onPublish || !anyOn(settings) || !covers(settings, event.collection)) return;
 			// An entry hidden from search engines is not announced to them.
 			const entry = (await ctx.content?.get(event.collection, event.id).catch(() => null)) as { seo?: { noIndex?: boolean } } | null | undefined;
 			if (entry?.seo?.noIndex) return;
 			const url = await ctx.content?.getPublicUrl?.(event.collection, event.id);
-			if (url) await submitUrls(ctx, [url], "updated", `${event.collection}:${event.id}`);
+			if (url) await submitUrls(ctx, google, [url], "updated", `${event.collection}:${event.id}`);
 		},
 		async unpublish(ctx, _env, event) {
 			const settings = await indexingSection.load(ctx.settings);
-			if (!settings.onPublish || (!settings.indexnow && !settings.google) || !covers(settings, event.collection)) return;
+			if (!settings.onPublish || !anyOn(settings) || !covers(settings, event.collection)) return;
 			// The page no longer has a public address; use the last one that was sent.
 			const last = await log(ctx).query({ where: { entryKey: `${event.collection}:${event.id}` }, orderBy: { at: "desc" }, limit: 1 });
 			const url = last.items[0]?.data.url;
-			if (url) await submitUrls(ctx, [url], "removed", `${event.collection}:${event.id}`);
+			if (url) await submitUrls(ctx, google, [url], "removed", `${event.collection}:${event.id}`);
 		},
 	},
+};
 };

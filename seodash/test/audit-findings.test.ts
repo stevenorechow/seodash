@@ -193,7 +193,8 @@ describe("audit L2: an empty site address", () => {
 	const page = (url: string) => ({ ...article, url, image: null });
 	const setUp = async (url = "") => {
 		const h = harness(MODULES, { ...posts, site: { url }, core: null });
-		await h.panel("posts", "p1", { type: "form_submit", action_id: "entry:social", values: { ogTitle: "Shared", ogDescription: "", ogImage: "/og-audit.png", twitterTitle: "", twitterDescription: "", twitterImage: "" } });
+		await h.ctx.storage.entries!.put("posts:p1", { collection: "posts", entryId: "p1", ogImage: "/og-audit.png" });
+		await h.panel("posts", "p1", { type: "form_submit", action_id: "entry:social", values: { ogTitle: "Shared", ogDescription: "" } });
 		await h.submit("/schema", "schema:output", { ...OUTPUT, publisher: true, website: true });
 		await h.submit("/schema", "schema:publisher", { type: "Organization", name: "Acme Works", logo: "/logo.png" });
 		return h;

@@ -24,9 +24,9 @@ export const checksSection = defineSection<ChecksSettings>("checks", { requireDe
 const FORM: FormSpec = {
 	id: "checks:settings",
 	fields: [
-		toggleField("requireDescription", "Require a search description", { description: "An entry needs an SEO description, an excerpt or a description template before it can be published." }),
-		toggleField("requireAlt", "Require alt text on images", { description: "Every image needs alt text before publishing. This applies to entries hidden from search engines too, because alt text is for accessibility." }),
-		{ kind: "collections", key: "collections", label: "Only these collections", description: "None ticked means every collection." },
+		toggleField("requireDescription", "Require a search description"),
+		toggleField("requireAlt", "Require alt text on images"),
+		{ kind: "collections", key: "collections", label: "Only these collections (none ticked means all)" },
 	],
 };
 
@@ -40,7 +40,7 @@ export const checks: Module = {
 			label: "Publishing",
 			order: 45,
 			async render(ctx) {
-				return [note("Rules an entry must meet before it is published, however it is published, scheduled entries included."), formBlock(await withCollections(ctx, FORM), await checksSection.load(ctx.settings))];
+				return [note("Rules an entry must meet before it is published or scheduled. A search description can come from the SEO field, the excerpt or a template. Alt text is checked on every image, hidden entries included."), formBlock(await withCollections(ctx, FORM), await checksSection.load(ctx.settings))];
 			},
 		},
 	],

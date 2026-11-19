@@ -11,7 +11,7 @@ No. With default settings the public pages are unchanged.
 EmDash's own SEO fields keep their values. The uninstall dialog asks whether to delete plugin storage data: unticked, SEOdash's settings and per-entry data stay for a reinstall; ticked, they are deleted. Settings can be exported first under Settings, on the Import and export tab.
 
 **Which outside services does it contact?**
-Only IndexNow and Google's indexing service, after you switch instant indexing on. They receive your own page addresses, with your IndexNow key or a token made from your Google key.
+Only IndexNow, after you switch instant indexing on. It receives your own page addresses and your IndexNow key.
 
 **On Cloudflare, SEOdash's pages say "Plugin responded with 404" after installing.**
 On EmDash 1.5 a new plugin reaches only some of the site's running copies at first, so some requests miss it, tags included. Deploy the site once to fix it.

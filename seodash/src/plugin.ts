@@ -5,9 +5,9 @@
  * plugin format. The trusted build can read EmDash's own site settings, so it never asks for a
  * value EmDash already has.
  */
-import { definePlugin, getSiteSettings, type PluginContext } from "emdash";
+import { definePlugin, getSiteSettings, type PluginContext, pluginResponse } from "emdash";
 import { compose } from "./compose.js";
-import type { CoreSite, Module } from "./kit.js";
+import type { CoreSite, Module, RawReply } from "./kit.js";
 import { MODULES } from "./modules/index.js";
 import { PLUGIN_ID, PLUGIN_VERSION } from "./version.js";
 
@@ -53,14 +53,23 @@ export function createPlugin(options: SeodashOptions = {}) {
 	// EmDash cuts a hook off after 5 seconds. These wait for outside services or work through many entries.
 	const slow = <E>(handler: (event: E, ctx: PluginContext) => Promise<unknown>) => ({ ...quiet(handler), timeout: 30000 });
 
-	const routes: Record<string, { permission?: string; public?: boolean; handler: (ctx: RouteContext) => Promise<unknown> }> = {
+	const routes: Record<string, { permission?: string; public?: boolean; handler: (ctx: RouteContext) => Promise<unknown> } & Record<string, unknown>> = {
 		admin: { permission: "plugins:manage", handler: (ctx) => built.routes.admin(ctx.input, ctx) },
 		entry: { permission: "content:edit_own", handler: (ctx) => built.routes.entry(ctx.input, ctx.ui?.entry, ctx) },
 	};
 	for (const [name, route] of Object.entries(built.extraRoutes)) {
+		const { handler: _, permission, public: open, ...rest } = route;
 		routes[name] = {
-			...(route.public ? { public: true } : { permission: route.permission ?? "plugins:manage" }),
-			handler: (ctx) => route.handler(ctx.input, ctx, built.env),
+			// Methods, body and response modes are passed to EmDash as declared.
+			...rest,
+			...(open ? { public: true } : { permission: permission ?? "plugins:manage" }),
+			handler: async (ctx: RouteContext) => {
+				const result = await route.handler(ctx.input, ctx, built.env);
+				if (route.response !== "raw") return result;
+				const reply = (result && typeof result === "object" && "status" in result ? result : { status: 404, body: result }) as RawReply;
+				const text = reply.headers && typeof reply.body === "string";
+				return pluginResponse({ status: reply.status, headers: text ? reply.headers : { "Content-Type": "application/json" }, body: { kind: "text", value: text ? (reply.body as string) : JSON.stringify(reply.body) } });
+			},
 		};
 	}
 

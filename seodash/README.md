@@ -31,7 +31,7 @@ someone entered or a feature someone switched on.
 | Social | Open Graph and X card options, `twitter:site`, Facebook app and page IDs, Pinterest |
 | Structured data | Fifteen types per entry, automatic rules per collection, local business, publisher, breadcrumbs |
 | Site audit | Scores every published entry and lists what to fix, with a dashboard widget |
-| Indexing | IndexNow and Google Indexing API, on publish or on demand; entries hidden from search are not announced |
+| Indexing | IndexNow, on publish or on demand; entries hidden from search are not announced. The key file downloads from the Indexing tab |
 | Publishing rules | Optionally require a description or image alt text before an entry can be published |
 | Settings | Import and export |
 

@@ -7,9 +7,12 @@ import { audit } from "./audit.js";
 import { checks } from "./checks.js";
 import { entry } from "./entry.js";
 import { features } from "./features.js";
-import { indexing } from "./indexing.js";
+import { indexingModule } from "./indexing.js";
 import { meta } from "./meta.js";
 import { schema } from "./schema/index.js";
 import { tools } from "./tools.js";
+
+/** Without Google's Indexing API, which does not fit the sandbox size limit. */
+const indexing = indexingModule();
 
 export const MODULES: Module[] = [features, meta, entry, schema, audit, indexing, checks, tools];

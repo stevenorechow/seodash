@@ -125,8 +125,8 @@ export const OUTPUT: FormSpec = {
 	id: "schema:output",
 	fields: [
 		toggleField("enabled", "Print structured data", { description: "Leave off if the site's templates already print their own JSON-LD." }),
-		toggleField("publisher", "Publisher", { description: "The organization or person behind the site." }),
-		toggleField("website", "Website", { description: "Replaces the basic website data EmDash prints." }),
+		toggleField("publisher", "Publisher (who is behind the site)"),
+		toggleField("website", "Website (replaces EmDash's basic website data)"),
 		textField("searchUrl", "Site search URL", { placeholder: "https://example.com/search?q={search_term_string}", when: { field: "website", eq: true } }),
 		toggleField("breadcrumbs", "Breadcrumbs", { description: "Uses the trail each page template supplies; pages without one get none." }),
 	],

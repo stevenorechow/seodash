@@ -193,8 +193,10 @@ export interface RouteDef {
 /** What a `response: "raw"` route returns. */
 export interface RawReply {
 	status: number;
-	/** Sent as JSON. */
+	/** Sent as JSON, or as is when it is text and `headers` are given. */
 	body: unknown;
+	/** With a text body: the headers to send, such as a content type or a download file name. */
+	headers?: Record<string, string>;
 }
 
 export interface ContentEvent {

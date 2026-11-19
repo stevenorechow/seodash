@@ -54,7 +54,9 @@ describe("head output", () => {
 
 	it("applies entry social overrides and robots extras", async () => {
 		const h = site();
-		await h.panel("posts", "p1", { type: "form_submit", action_id: "entry:social", values: { ogTitle: "Share me", ogImage: "/img/share.jpg" } });
+		// A sharing image set before 1.0.3, when the panel still had its own field.
+		await h.ctx.storage.entries!.put("posts:p1", { collection: "posts", entryId: "p1", ogImage: "/img/share.jpg" });
+		await h.panel("posts", "p1", { type: "form_submit", action_id: "entry:social", values: { ogTitle: "Share me" } });
 		await h.panel("posts", "p1", { type: "form_submit", action_id: "entry:robots", values: { nosnippet: true } });
 		const tags = (await h.head(article)) ?? [];
 		expect(tags).toContainEqual({ kind: "property", property: "og:title", content: "Share me" });

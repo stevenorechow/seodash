@@ -14,16 +14,25 @@ import { type EntryStore, saveEntry } from "../core/entry.js";
 import { type Block, type Ctx, type EntryView, type Env, type Module, entryFacts, fail, ok, store, str, note } from "../kit.js";
 import { type SearchAppearance, searchAppearance } from "./meta.js";
 
-const SOCIAL: FormSpec = {
-	id: "entry:social",
-	fields: [
-		textField("ogTitle", "Sharing title"),
-		textField("ogDescription", "Sharing description", { multiline: true }),
-		{ kind: "image", key: "ogImage", label: "Sharing image" },
-		textField("twitterTitle", "X title"),
-		textField("twitterDescription", "X description", { multiline: true }),
-		{ kind: "image", key: "twitterImage", label: "X image" },
-	],
+/**
+ * The sharing image is EmDash's own OG Image, which the editor's SEO section picks from the media
+ * library. The panel shows its own image and X fields only where they already hold a value (so it
+ * can be cleared) or, for the image, where the collection has no SEO fields.
+ */
+const socialForm = (view: EntryView): FormSpec => {
+	const record = view.record;
+	const x = Boolean(record.twitterTitle || record.twitterDescription || record.twitterImage);
+	return {
+		id: "entry:social",
+		fields: [
+			textField("ogTitle", "Sharing title"),
+			textField("ogDescription", "Sharing description", { multiline: true }),
+			...(record.ogImage || !view.seo ? [{ kind: "image", key: "ogImage", label: "Sharing image" } as const] : []),
+			...(x
+				? [textField("twitterTitle", "X title"), textField("twitterDescription", "X description", { multiline: true }), { kind: "image", key: "twitterImage", label: "X image" } as const]
+				: []),
+		],
+	};
 };
 
 const ROBOTS: FormSpec = {
@@ -46,7 +55,6 @@ const searchForm = (appearance: SearchAppearance, entry: EntryView): FormSpec =>
 	fields: [
 		textField("title", "Search title", { placeholder: appearance.templateTitle || entry.title }),
 		textField("description", "Description", { multiline: true, placeholder: appearance.templateDescription || entry.excerpt }),
-		{ kind: "image", key: "image", label: "Sharing image" },
 		textField("canonical", "Canonical URL", { placeholder: entry.url ?? "" }),
 		toggleField("noIndex", "Hide from search engines"),
 	],
@@ -68,7 +76,7 @@ export async function analyzeEntry(ctx: Ctx, env: Env, entry: EntryView, appeara
 		url: entry.url,
 		siteUrl: ctx.site.url,
 		canonical: entry.seo?.canonical ?? null,
-		noIndex: entry.seo?.noIndex === true,
+		noIndex: entry.seo?.noIndex === true || search.hidden,
 		nofollow: entry.record.nofollow,
 		hasImage: Boolean(entry.seo?.image || entry.record.ogImage || entry.image),
 		// With structured data switched off there is nothing to ask for.
@@ -114,11 +122,7 @@ export const entry: Module = {
 					blocks.push({ type: "banner", description: "SEO fields are switched off for this collection. Turn them on in its settings to set a search title and description." });
 				} else if (!env.trusted) {
 					// EmDash 1.5 lets a sandboxed plugin read these fields but not write them.
-					blocks.push(
-						...shown("Sharing image", view.seo.image ?? ""),
-						...shown("Canonical URL", view.seo.canonical ?? ""),
-						note("EmDash's own SEO fields, shown for reference. Edit them in the SEO section of the editor."),
-					);
+					blocks.push(note("Edit the search title and description in the editor's SEO section."));
 				} else {
 					blocks.push(formBlock(searchForm(appearance, view), { title: view.seo.title ?? "", description: view.seo.description ?? "", image: view.seo.image ?? "", canonical: view.seo.canonical ?? "", noIndex: view.seo.noIndex }), {
 						type: "context",
@@ -170,8 +174,8 @@ export const entry: Module = {
 							{ label: "Shared image", value: record.ogImage || (view.seo?.image || view.image ? "The entry's image" : "The site default, if one is set") },
 						],
 					},
-					note("Leave a field empty to share the search title, description and image."),
-					formBlock(SOCIAL, record),
+					note(view.seo ? "Leave a field empty to share the search title and description. Choose the image under OG Image in the editor's SEO section." : "Leave a field empty to share the search title and description."),
+					formBlock(socialForm(view), record),
 				];
 			},
 		},
@@ -197,7 +201,8 @@ export const entry: Module = {
 			const text = (key: string) => (typeof values[key] === "string" ? str(values[key]).trim().slice(0, 2000) : "");
 			// Only what changed is written, so a field edited elsewhere in the meantime is not undone.
 			const seo: Record<string, unknown> = {};
-			for (const key of ["title", "description", "image", "canonical"] as const) {
+			// The OG image is left to the editor's SEO section, which picks it from the media library.
+			for (const key of ["title", "description", "canonical"] as const) {
 				if (!(key in values)) continue;
 				const next = text(key);
 				if (next !== (view.seo[key] ?? "")) seo[key] = next || null;
@@ -207,7 +212,7 @@ export const entry: Module = {
 			await update.call(ctx.content, view.collection, view.id, { seo });
 			return { toast: { type: "success", message: "Saved" }, refresh: true };
 		}
-		const spec = action.id === "social" ? SOCIAL : action.id === "robots" ? ROBOTS : action.id === "keywords" ? KEYWORDS : null;
+		const spec = action.id === "social" ? socialForm(view) : action.id === "robots" ? ROBOTS : action.id === "keywords" ? KEYWORDS : null;
 		if (!spec) return null;
 		await saveEntry(entries(ctx), readForm(spec, values, view.record));
 		return ok(action.id === "keywords" ? "Analyzed" : "Saved");

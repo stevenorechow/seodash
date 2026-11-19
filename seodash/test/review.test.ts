@@ -72,7 +72,9 @@ describe("the sandboxed entry panel and EmDash's SEO fields", () => {
 		valid(first);
 		expect(textOf(first)).not.toContain('"block_id":"entry:search"');
 		expect(textOf(first)).not.toContain("edited here");
-		expect(textOf(first)).toContain("SEO section of the editor");
+		expect(textOf(first)).toContain("editor's SEO section");
+		// Nothing is shown that the panel cannot change.
+		expect(textOf(first)).not.toContain("Canonical URL");
 		const values = { title: "New", description: "", image: "", canonical: "", noIndex: false };
 		const refused = await h.panel("posts", "p1", { type: "form_submit", action_id: "entry:search", values });
 		expect(refused.toast).toMatchObject({ type: "error" });
@@ -92,6 +94,35 @@ describe("the sandboxed entry panel and EmDash's SEO fields", () => {
 		const failed = await h.panel("posts", "p1", { type: "form_submit", action_id: "entry:search", values: { ...values, title: "Other" } });
 		expect(failed.toast).toMatchObject({ type: "error" });
 		expect(failed.refresh).toBeUndefined();
+	});
+
+	it("leave the OG image to the editor's own picker and never clear it", async () => {
+		const h = harness(MODULES, { ...posts, content: { posts: [{ id: "p1", slug: "hello", data: { title: "Hello" }, seo: { title: null, description: null, image: "/media/og.jpg", canonical: null, noIndex: false } }] } });
+		let written: Any = {};
+		(h.ctx.content as { update: unknown }).update = async (_c: string, _id: string, data: Any) => {
+			written = data;
+			return {};
+		};
+		const panel = await h.panel("posts", "p1");
+		const ids = walk(panel.blocks as Any[]).flatMap((block) => (block.fields ?? []).map((field: Any) => field.action_id));
+		expect(ids).not.toContain("image");
+		expect(ids).not.toContain("ogImage");
+		expect(ids).not.toContain("twitterImage");
+		expect(textOf(panel)).toContain("Choose the image under OG Image");
+		// A stale form that still sends an empty image changes only the title.
+		await h.panel("posts", "p1", { type: "form_submit", action_id: "entry:search", values: { title: "New", image: "" } });
+		expect(written).toEqual({ seo: { title: "New" } });
+	});
+
+	it("still show a sharing image or X override saved before, so it can be cleared", async () => {
+		const h = harness(MODULES, posts);
+		await h.ctx.storage.entries!.put("posts:p1", { collection: "posts", entryId: "p1", ogImage: "/old.jpg", twitterTitle: "Old" });
+		const ids = walk((await h.panel("posts", "p1")).blocks as Any[]).flatMap((block) => (block.fields ?? []).map((field: Any) => field.action_id));
+		expect(ids).toEqual(expect.arrayContaining(["ogImage", "twitterTitle", "twitterDescription", "twitterImage"]));
+		await h.panel("posts", "p1", { type: "form_submit", action_id: "entry:social", values: { ogTitle: "", ogDescription: "", ogImage: "", twitterTitle: "", twitterDescription: "", twitterImage: "" } });
+		const after = walk((await h.panel("posts", "p1")).blocks as Any[]).flatMap((block) => (block.fields ?? []).map((field: Any) => field.action_id));
+		expect(after).not.toContain("ogImage");
+		expect(after).not.toContain("twitterTitle");
 	});
 });
 
@@ -121,7 +152,7 @@ describe("hints on settings", () => {
 				for (const block of walk(response.blocks as Any[])) if (block.type === "form") for (const field of block.fields) expect(field.description, `${page} ${field.label}`).toBeUndefined();
 			}
 			const settings = walk((await h.page("/settings")).blocks as Any[]);
-			expect(settings.some((block) => block.type === "context" && block.text.includes("This applies to entries hidden from search engines too"))).toBe(true);
+			expect(settings.some((block) => block.type === "context" && block.text.includes("hidden entries included"))).toBe(true);
 		}
 	});
 });
@@ -160,7 +191,6 @@ describe("the audit scan", () => {
 describe("IndexNow in the sandbox", () => {
 	it("asks for a key file at the site root and cannot be switched on until it is confirmed", async () => {
 		const h = harness(MODULES, { ...posts, core: null, http: [{ match: "api.indexnow.org", status: 202, body: "" }] });
-		expect(h.built.extraRoutes["indexnow-key"]).toBeUndefined();
 		const tab = await h.page("/settings");
 		valid(tab);
 		const key = (await h.ctx.settings.get<{ key: string }>("config:indexing"))!.key;
@@ -168,22 +198,44 @@ describe("IndexNow in the sandbox", () => {
 		const form = walk(tab.blocks as Any[]).find((block) => block.block_id === "indexing:settings")!;
 		const file = form.fields.find((field: Any) => field.action_id === "file");
 		expect(file).toMatchObject({ initial_value: `https://acme.test/${key}.txt`, condition: { field: "indexnow", eq: true } });
-		expect(file.label).toContain(key);
+		// The file comes as a download, named and filled the way IndexNow expects.
+		const link = walk(tab.blocks as Any[]).flatMap((block) => block.elements ?? []).find((element: Any) => element.label === "Download key file")!;
+		expect(link.target).toEqual({ kind: "external", url: "https://acme.test/_emdash/api/plugins/seodash/indexnow-key" });
+		expect(await h.built.extraRoutes["indexnow-key"]!.handler({}, h.ctx, h.built.env)).toEqual({
+			status: 200,
+			body: key,
+			headers: { "Content-Type": "text/plain; charset=utf-8", "Content-Disposition": `attachment; filename="${key}.txt"` },
+		});
 		expect(form.fields.find((field: Any) => field.action_id === "keyFile")).toMatchObject({ type: "toggle", condition: { field: "indexnow", eq: true } });
 		const refused = await h.submit("/settings", "indexing:settings", { indexnow: true, keyFile: false, google: false, onPublish: true, collections: "" });
 		expect(refused.toast).toMatchObject({ type: "error" });
 		expect((await h.ctx.settings.get<{ indexnow: boolean }>("config:indexing"))!.indexnow).toBe(false);
 		const saved = await h.submit("/settings", "indexing:settings", { indexnow: true, keyFile: true, google: false, onPublish: true, collections: "" });
 		expect(saved.toast).toMatchObject({ type: "success" });
+		// Once the file is in place, the download step goes away.
+		expect(textOf(await h.page("/settings"))).not.toContain("Download key file");
 		await h.submit("/settings", "indexing:submit", { urls: "https://acme.test/posts/hello" });
 		expect(JSON.parse(String(h.ctx.requests[0]!.init!.body))).toMatchObject({ key, keyLocation: `https://acme.test/${key}.txt` });
 	});
 
-	it("shows the Google key field under its switch in the same form", async () => {
-		// Where the Search Console reports are installed, the key is entered under Integrations instead.
-		const h = harness(MODULES.filter((module) => module.id !== "reports"), { ...posts, core: null });
+	it("leaves Google's Indexing API out of the free build", async () => {
+		const h = harness(MODULES, { ...posts, core: null });
 		const form = walk((await h.page("/settings")).blocks as Any[]).find((block) => block.block_id === "indexing:settings")!;
-		expect(form.fields.find((field: Any) => field.action_id === "googleKey")).toMatchObject({ type: "secret_input", condition: { field: "google", eq: true } });
-		expect(walk((await h.page("/settings")).blocks as Any[]).some((block) => block.block_id === "indexing:google-key")).toBe(false);
+		expect(form.fields.map((field: Any) => field.action_id)).not.toContain("google");
+		expect(form.fields.map((field: Any) => field.action_id)).not.toContain("googleKey");
+		// Nor does the build ask for Google's hosts or a key.
+		expect(h.built.allowedHosts).toEqual(["api.indexnow.org"]);
+		expect(JSON.stringify(h.built)).not.toContain("googleapis");
+	});
+
+	it("does nothing for a site that had only Google switched on before 1.0.3", async () => {
+		const h = harness(MODULES, { ...posts, core: null, http: [{ match: "", status: 200, body: "" }] });
+		await h.ctx.settings.set("config:indexing", { indexnow: false, google: true, onPublish: true, collections: "", key: "", keyFile: false });
+		valid(await h.page("/settings"));
+		await h.built.hooks.publish({ collection: "posts", content: { id: "p1" } }, h.ctx);
+		expect(h.ctx.requests).toEqual([]);
+		const sent = await h.submit("/settings", "indexing:submit", { urls: "https://acme.test/posts/hello" });
+		expect(sent.toast).toMatchObject({ type: "error" });
+		expect(h.ctx.requests).toEqual([]);
 	});
 });

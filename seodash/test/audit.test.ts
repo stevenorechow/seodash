@@ -212,7 +212,10 @@ describe("overview", () => {
 		expect(await h.ctx.kv.get("audit:view")).toMatchObject({ collection: "all", show: "thin" });
 		expect(table(shown).rows.length).toBeGreaterThan(10);
 		expect(table(shown).rows.every((row) => String(row.issues).includes("Thin"))).toBe(true);
-		// Unknown findings change nothing.
+		// Filtering and paging there stay on the Content tab, although the host still has the Overview's address.
+		expect(table(await h.submit("/", "audit:filter", { collection: "all", show: "thin" }))).toBeDefined();
+		expect(textOf(await h.press("/", "audit:entries", { cursor: "25" }))).toContain("Thin content");
+				// Unknown findings change nothing.
 		await h.press("/", "audit:show", "nonsense");
 		expect(await h.ctx.kv.get("audit:view")).toMatchObject({ show: "thin" });
 	});
@@ -238,6 +241,75 @@ describe("overview", () => {
 		expect(rows[0]!.edit).toMatchObject({ type: "link", label: "Edit", target: { kind: "content" } });
 		expect(rows[0]!.finding).toBe("Search title used by more than one entry");
 		expect(new Set(rows.map((row) => row.edit.target.id)).size).toBe(rows.length);
+	});
+
+	it("leaves an entry out of the audit and puts it back", async () => {
+		const h = site();
+		await scanAll(h);
+		const page = await h.page("/");
+		const before = (await auditSummary(h.ctx))!;
+		const accordion = page.blocks.find((block) => block.type === "accordion" && String((block as { label: string }).label).includes("No description")) as { blocks: Array<Record<string, any>> };
+		const row = accordion.blocks.find((block) => block.type === "table")!.rows[0];
+		expect(row.out).toMatchObject({ type: "button", label: "Leave out", action_id: "audit:out", value: "posts:p5" });
+		const left = await h.press("/", "audit:out", "posts:p5");
+		valid(left);
+		expect(left.toast).toMatchObject({ type: "success" });
+		const after = (await auditSummary(h.ctx))!;
+		expect(after.entries).toBe(before.entries - 1);
+		expect(after.out).toBe(1);
+		expect(after.findings.find((finding) => finding.id === "no-description")).toBeUndefined();
+		expect(textOf(left)).toContain("1 entry left out of the audit.");
+		// The Content tab lists it only under its own filter, where it can be put back.
+		const shown = await h.press("/", "audit:show", "out");
+		expect(table(shown).rows.map((row) => row.edit.target.id)).toEqual(["p5"]);
+		expect(table(shown).rows[0]!.out).toMatchObject({ label: "Put back", action_id: "audit:in", value: ["posts:p5", "/content"] });
+		const all = await h.submit("/content", "audit:filter", { collection: "all", show: "all" });
+		expect(table(all).rows.some((row) => row.edit.target.id === "p5")).toBe(false);
+		// Pressed on the Content tab while the host still has the Overview's address: the Content tab comes back.
+		const back = await h.press("/", "audit:in", ["posts:p5", "/content"]);
+		expect(textOf(back)).toContain("Left out of the audit");
+		expect((await auditSummary(h.ctx))!.entries).toBe(before.entries);
+		expect((await auditSummary(h.ctx))!.out).toBe(0);
+		// Nonsense values change nothing.
+		await h.press("/", "audit:out", "nonsense");
+		expect(await h.ctx.kv.get("audit:out")).toEqual([]);
+	});
+
+	it("audits only the chosen collections, and puts the rest back when the choice is cleared", async () => {
+		const h = site();
+		await scanAll(h);
+		const before = (await auditSummary(h.ctx))!;
+		valid(await h.page("/settings"));
+		const saved = await h.submit("/settings", "audit:settings", { collections: ["pages"] });
+		expect(saved.toast).toMatchObject({ type: "success" });
+		const scoped = (await auditSummary(h.ctx))!;
+		expect(scoped.entries).toBe(2);
+		expect(scoped.findings.some((finding) => finding.id === "duplicate-titles")).toBe(false);
+		const listed = await h.submit("/content", "audit:filter", { collection: "all", show: "all" });
+		expect(new Set(table(listed).rows.map((row) => row.edit.target.collection))).toEqual(new Set(["pages"]));
+		// Nothing was rescanned or deleted: clearing the choice brings the full audit back at once.
+		await h.submit("/settings", "audit:settings", { collections: [] });
+		expect((await auditSummary(h.ctx))!.entries).toBe(before.entries);
+	});
+
+	it("counts entries hidden from search engines only as hidden", async () => {
+		const h = site();
+		await scanAll(h);
+		const filtered = await h.submit("/content", "audit:filter", { collection: "all", show: "thin" });
+		expect(table(filtered).rows.some((row) => row.edit.target.id === "p4")).toBe(false);
+		const hidden = await h.submit("/content", "audit:filter", { collection: "all", show: "hidden" });
+		expect(table(hidden).rows.map((row) => row.edit.target.id)).toEqual(["p4"]);
+	});
+
+	it("takes an entry off its finding once it is fixed and saved", async () => {
+		const h = site();
+		await scanAll(h);
+		expect((await auditSummary(h.ctx))!.findings.find((finding) => finding.id === "no-description")!.entries!.map((entry) => entry.entryId)).toContain("p5");
+		const item = h.ctx.items.posts!.find((candidate) => candidate.id === "p5")!;
+		item.data.excerpt = "Now it has a summary.";
+		await h.built.hooks.save({ collection: "posts", content: { id: "p5" } }, h.ctx);
+		const page = await h.page("/");
+		expect(textOf(page)).not.toContain("Fix: No description");
 	});
 
 	it("draws the trend once there are two scores", async () => {

@@ -118,10 +118,10 @@ export function analyze(input: AnalysisInput): Analysis {
 	const h1 = outline.headings.filter((heading) => heading.level === 1);
 	const subheadings = outline.headings.filter((heading) => heading.level >= 2);
 	if (h1.length > 1) {
-		add("h1", "Main heading", "high", `The content has ${h1.length} H1 headings. A page should have one main heading; use H2 and below for the rest.`);
+		add("h1", "Main heading", "high", `The content has ${h1.length} H1 headings. Keep one and use H2 and below for the rest.`);
 	} else if (h1.length === 1) {
 		// Page builders put the main heading in the content, so one H1 there is only worth a look.
-		add("h1", "Main heading", "low", "The content has an H1 heading. If the page also shows the entry title as its main heading, change this one to H2.");
+		add("h1", "Main heading", "low", "The content has an H1. If the page shows the entry title as its main heading, make this one an H2.");
 	} else if (keywords.length && input.heading && !has(input.heading, keywords).length) {
 		add("h1", "Main heading", "medium", "None of the target keywords appear in the entry title. Work one in.");
 	} else if (input.heading) {
@@ -187,7 +187,7 @@ export function analyze(input: AnalysisInput): Analysis {
 	else add("robots", "Search visibility", "good", "Search engines can index this page.");
 	if (input.canonical && input.url) {
 		const same = input.canonical.replace(/\/+$/, "") === input.url.replace(/\/+$/, "") || input.canonical.replace(/\/+$/, "") === input.url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "");
-		if (!same) add("canonical", "Canonical URL", "high", `Points to another address (${input.canonical}). Search engines will index that page instead. Clear Canonical URL in the SEO section unless that is intended.`);
+		if (!same) add("canonical", "Canonical URL", "high", `Points to another address (${input.canonical}). Search engines will index that page instead. Clear Canonical URL if that is not intended.`);
 	}
 
 	// Sharing

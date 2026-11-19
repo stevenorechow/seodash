@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { checks } from "../src/modules/checks.js";
 import { entry } from "../src/modules/entry.js";
 import { features } from "../src/modules/features.js";
-import { indexing } from "../src/modules/indexing.js";
+import { indexingModule } from "../src/modules/indexing.js";
+
+const indexing = indexingModule();
 import { meta } from "../src/modules/meta.js";
 import { exportSettings, tools } from "../src/modules/tools.js";
 import { harness, textOf, valid } from "./helpers.js";
@@ -108,7 +110,7 @@ describe("publishing checks", () => {
 
 	it("say that the alt text rule applies to hidden entries too", async () => {
 		const h = site();
-		expect(textOf(await h.page("/settings"))).toContain("This applies to entries hidden from search engines too, because alt text is for accessibility.");
+		expect(textOf(await h.page("/settings"))).toContain("Alt text is checked on every image, hidden entries included.");
 	});
 
 	it("do not ask a hidden entry for a search description, but still ask it for alt text", async () => {

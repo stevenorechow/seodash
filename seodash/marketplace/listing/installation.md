@@ -7,6 +7,6 @@ Nothing needs to be configured for the plugin to be useful, and nothing is print
 ## Optional steps
 
 - **Site details.** A sandboxed plugin cannot read EmDash's site settings, so the title separator, default sharing image, Google and Bing verification codes and social profiles used in tags and structured data are entered once under Settings, on the Verification tab.
-- **IndexNow.** Switch it on under Settings, on the Indexing tab. Add the file shown there to the site root, deploy, then confirm on the same tab that it is in place.
-- **Google Indexing API.** Paste the JSON key of a Google Cloud service account. API keys are encrypted by EmDash; the site needs `EMDASH_ENCRYPTION_KEY` set to save one.
+- **IndexNow.** Under Settings, on the Indexing tab, download the key file, add it to the site's public folder and deploy. Then switch IndexNow on and confirm the file is in place.
+- **Audit scope.** To audit only some collections, tick them under Settings, on the Audit tab. Single entries, such as a 404 page, can be left out from the Overview.
 - **Page titles.** EmDash templates set `<title>` themselves, so the page title comes from the site template. Description and social title templates are applied automatically.

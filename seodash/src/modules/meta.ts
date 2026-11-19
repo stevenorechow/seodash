@@ -145,6 +145,8 @@ export interface SearchAppearance {
 	/** What the templates alone produce ("" when the collection has none). */
 	templateTitle: string;
 	templateDescription: string;
+	/** The collection's template hides the entry from search engines. */
+	hidden: boolean;
 }
 
 /** The title and description search engines get for an entry, and where each comes from. */
@@ -169,6 +171,7 @@ export async function searchAppearance(ctx: Ctx, env: Env, entry: EntryView, tit
 		descriptionSource: seoDescription ? "seo" : templateDescription ? "template" : entry.excerpt ? "excerpt" : "none",
 		templateTitle,
 		templateDescription,
+		hidden: !off && template?.noindex === true,
 	};
 }
 
@@ -305,7 +308,7 @@ export const meta: Module = {
 			async render(ctx) {
 				const titles = await titlesSection.load(ctx.settings);
 				const collections = await visibleCollections(ctx);
-				const blocks: Block[] = [note("Templates fill in only where an entry's own SEO title or description is empty, so nothing written is replaced. Leave one empty to keep what the site prints today.")];
+				const blocks: Block[] = [note("Templates fill in only where an entry's own SEO title or description is empty. Leave one empty to keep what the site prints today.")];
 				if (!collections.length) blocks.push({ type: "empty", title: "No collections found", size: "sm" });
 				for (const collection of collections) {
 					const set = { ...DEFAULT_COLLECTION_TITLES, ...titles.collections[collection.slug] };
@@ -348,7 +351,7 @@ export const meta: Module = {
 			label: "Sharing",
 			order: 10,
 			async render(ctx) {
-				return [note("How pages look when shared. Each entry can override its sharing title, description and image."), formBlock(SHARING, await socialSection.load(ctx.settings))];
+				return [note("How pages look when shared. Each entry can override its sharing title and description; the image is its OG Image."), formBlock(SHARING, await socialSection.load(ctx.settings))];
 			},
 		},
 		{

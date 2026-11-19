@@ -5,7 +5,8 @@
  * marketplace's 128 KB code limit (see MODULES in src/modules/index.ts). EmDash's site settings are not readable from the
  * sandbox, so the few values SEOdash would read from them are asked for under Settings → Verification.
  */
-import type { PluginContext, SandboxedPlugin, SandboxedRouteContext } from "emdash/plugin";
+import { type PluginContext, pluginResponse, type SandboxedPlugin, type SandboxedRouteContext } from "emdash/plugin";
+import type { RawReply } from "../../src/kit.js";
 import { compose } from "../../src/compose.js";
 import { MODULES } from "../../src/modules/index.js";
 
@@ -15,7 +16,7 @@ const quiet = (handler: (event: never, ctx: PluginContext) => Promise<unknown>) 
 // EmDash cuts a hook off after 5 seconds. These wait for outside services or work through many entries.
 const slow = (handler: (event: never, ctx: PluginContext) => Promise<unknown>) => ({ ...quiet(handler), timeout: 30000 });
 
-type Route = { permission?: string; public?: boolean; handler: (routeCtx: SandboxedRouteContext, ctx: PluginContext) => Promise<unknown> };
+type Route = Record<string, unknown> & { permission?: string; public?: boolean; handler: (routeCtx: SandboxedRouteContext, ctx: PluginContext) => Promise<unknown> };
 
 const routes: Record<string, Route> = {
 	admin: { permission: "plugins:manage", handler: (routeCtx, ctx) => built.routes.admin(routeCtx.input, ctx) },
@@ -25,9 +26,18 @@ const routes: Record<string, Route> = {
 	},
 };
 for (const [name, route] of Object.entries(built.extraRoutes)) {
+	const { handler: _, permission, public: open, ...rest } = route;
 	routes[name] = {
-		...(route.public ? { public: true } : { permission: route.permission ?? "plugins:manage" }),
-		handler: (routeCtx, ctx) => route.handler(routeCtx.input, ctx, built.env),
+		// Methods, body and response modes are passed to EmDash as declared.
+		...rest,
+		...(open ? { public: true } : { permission: permission ?? "plugins:manage" }),
+		handler: async (routeCtx, ctx) => {
+			const result = await route.handler(routeCtx.input, ctx, built.env);
+			if (route.response !== "raw") return result;
+			const reply = (result && typeof result === "object" && "status" in result ? result : { status: 404, body: result }) as RawReply;
+			const text = reply.headers && typeof reply.body === "string";
+			return pluginResponse({ status: reply.status, headers: text ? reply.headers : { "Content-Type": "application/json" }, body: { kind: "text", value: text ? (reply.body as string) : JSON.stringify(reply.body) } });
+		},
 	};
 }
 

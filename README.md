@@ -21,7 +21,7 @@ It also handles redirects, `sitemap.xml` and `robots.txt`. SEOdash keeps no seco
 | Verification | Pinterest, Yandex and Baidu verification codes, and optional Dublin Core tags |
 | Structured data | Fourteen schema types per entry (article, product, event, recipe, FAQ, how-to, job posting, video and more) and custom JSON-LD. Automatic rules per collection, publisher and local business details, and breadcrumbs. |
 | Site audit | Scores every published entry and lists what to fix first, with a dashboard widget |
-| Instant indexing | IndexNow and the Google Indexing API, on publish or on demand |
+| Instant indexing | IndexNow, on publish or on demand |
 | Publishing rules | Optionally require a description or image alt text before an entry can be published |
 | Settings | Export and import |
 

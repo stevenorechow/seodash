@@ -18,6 +18,15 @@ function notice(response: Response): { type: string; message: string } | undefin
 }
 
 describe("SEOdash in the sandbox", () => {
+	it("serves the IndexNow key file as a download", async () => {
+		host = await createPluginTestHost();
+		await host.invokeRoute("admin", { type: "page_load", page: "/settings" });
+		const reply = (await host.invokeRoute("indexnow-key", undefined, { method: "GET" } as never)) as { status: number; headers: Array<[string, string]>; body: { value: string } };
+		expect(reply.status).toBe(200);
+		expect(reply.body.value).toMatch(/^[0-9a-f]{32}$/);
+		expect(Object.fromEntries(reply.headers)).toEqual({ "content-type": "text/plain; charset=utf-8", "content-disposition": `attachment; filename="${reply.body.value}.txt"` });
+	});
+
 	it("renders every admin page", async () => {
 		host = await createPluginTestHost();
 		for (const page of ["/overview", "/content", "/titles", "/social", "/schema", "/links", "/reports", "/settings"]) {

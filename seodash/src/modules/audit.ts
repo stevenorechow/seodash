@@ -9,10 +9,11 @@
  * starts a new pass a day after the last one finished. Saving, publishing or deleting an entry
  * refreshes its own row straight away.
  */
-import { formBlock, type FormSpec, readForm } from "../admin/forms.js";
+import { formBlock, type FormSpec, readForm, withCollections } from "../admin/forms.js";
+import { defineSection } from "../core/settings.js";
 import { NOT_SCORED, SEVERITY_LABEL, TITLE_LIMIT } from "../core/analysis.js";
 import { entryKey } from "../core/entry.js";
-import { type Block, type Ctx, type Env, type ListedItem, type Module, type PageState, type Store, ago, all, isRecord, ok, store, note } from "../kit.js";
+import { type Block, type Ctx, type Env, type ListedItem, type Module, type PageState, type Store, ago, all, isRecord, ok, fail, store, note } from "../kit.js";
 import { analyzeEntry } from "./entry.js";
 import { searchAppearance, titlesSection } from "./meta.js";
 import { freshKv, hostCalls, prime } from "../core/scope.js";
@@ -56,6 +57,8 @@ export interface AuditSummary {
 	needFixing: number;
 	toImprove: number;
 	hidden: number;
+	/** Entries left out of the audit by hand; not counted anywhere else. */
+	out?: number;
 	/** Most severe first; only findings that affect at least one entry. */
 	findings: AuditFinding[];
 	/** When the last full pass finished (ISO). */
@@ -70,7 +73,21 @@ interface View {
 	sort: "asc" | "desc";
 }
 
-const KEY = { cursor: "audit:cursor", summary: "audit:summary", view: "audit:view", stale: "audit:stale", lease: "audit:lease" };
+const KEY = { cursor: "audit:cursor", summary: "audit:summary", view: "audit:view", stale: "audit:stale", lease: "audit:lease", out: "audit:out" };
+/** Most entries that can be left out of the audit. */
+const MAX_OUT = 500;
+const leftOut = async (ctx: Ctx) => new Set((await ctx.kv.get<string[]>(KEY.out)) ?? []);
+
+export const auditSection = defineSection<{ collections: string }>("audit", { collections: "" });
+const SETTINGS: FormSpec = { id: "audit:settings", fields: [{ kind: "collections", key: "collections", label: "Audit only these collections (none ticked means all)" }] };
+
+/** Tells which rows the audit counts: those of the chosen collections, apart from entries left out by hand. */
+async function scope(ctx: Ctx): Promise<{ out: Set<string>; isOut: (row: AuditRow) => boolean; counted: (row: AuditRow) => boolean }> {
+	const out = await leftOut(ctx);
+	const wanted = (await auditSection.load(ctx.settings)).collections.split(",").filter(Boolean);
+	const isOut = (row: AuditRow) => out.has(rowId(row.collection, row.entryId));
+	return { out, isOut, counted: (row) => (!wanted.length || wanted.includes(row.collection)) && !isOut(row) };
+}
 /** Sandboxed invocations that have run a batch: the page they render does not start another, which their host call budget cannot cover. */
 const RAN = new WeakSet<Ctx>();
 /** How long a batch holds the scan before another invocation may take it over (a cut-off run never releases it). */
@@ -101,8 +118,11 @@ const SHOW = [
 	{ label: "Needs fixing", value: "fix" },
 	{ label: "No search title", value: "notitle" },
 	...FINDINGS.map((finding) => ({ label: finding.label, value: finding.id })),
+	{ label: "Left out of the audit", value: "out" },
 ];
 
+/** Collection labels by slug. */
+const labelsOf = async (ctx: Ctx) => new Map(((await ctx.schema?.listCollections().catch(() => [])) ?? []).map((collection) => [collection.slug, collection.label]));
 const rows = (ctx: Ctx): Store<AuditRow> => store<AuditRow>(ctx, "audit");
 const rowId = (collection: string, id: string) => `${collection}:${id}`;
 const fold = (text: string) => text.trim().toLowerCase().replace(/\s+/g, " ");
@@ -144,7 +164,7 @@ async function buildRow(ctx: Ctx, env: Env, collection: string, id: string, list
 		words: analysis.words,
 		hasSeoTitle: appearance.titleSource !== "entry",
 		hasSeoDescription: appearance.descriptionSource === "seo" || appearance.descriptionSource === "template",
-		noIndex: entry.seo?.noIndex === true,
+		noIndex: entry.seo?.noIndex === true || appearance.hidden,
 		scannedAt: new Date().toISOString(),
 	};
 }
@@ -165,7 +185,7 @@ function matcher(list: AuditRow[]): (id: string, row: AuditRow) => boolean {
 	const id = (row: AuditRow) => rowId(row.collection, row.entryId);
 	const tests: Record<string, (row: AuditRow) => boolean> = {
 		"duplicate-titles": (row) => sameTitle.has(id(row)),
-		"no-description": (row) => !row.description && !row.noIndex,
+		"no-description": (row) => !row.description,
 		alt: (row) => row.issues.includes("alt"),
 		"duplicate-descriptions": (row) => sameDescription.has(id(row)),
 		"long-titles": (row) => row.searchTitle.length > TITLE_LIMIT,
@@ -173,7 +193,8 @@ function matcher(list: AuditRow[]): (id: string, row: AuditRow) => boolean {
 		"no-image": (row) => row.issues.includes("image"),
 		hidden: (row) => row.noIndex,
 	};
-	return (finding, row) => tests[finding]?.(row) ?? false;
+	// An entry hidden from search engines only counts as hidden: nothing else about it matters for search.
+	return (finding, row) => (finding === "hidden" ? row.noIndex : !row.noIndex && (tests[finding]?.(row) ?? false));
 }
 
 function findingsOf(list: AuditRow[]): AuditFinding[] {
@@ -196,7 +217,9 @@ function findingsOf(list: AuditRow[]): AuditFinding[] {
 /** Sums the rows up and saves the result. `pass` is set when a full pass has just finished. */
 async function summarize(ctx: Ctx, pass: boolean, known?: AuditRow[]): Promise<AuditSummary> {
 	const previous = await ctx.kv.get<AuditSummary>(KEY.summary);
-	const list = known ?? (await all(rows(ctx))).map((item) => item.data);
+	const { isOut, counted } = await scope(ctx);
+	const every = known ?? (await all(rows(ctx))).map((item) => item.data);
+	const list = every.filter(counted);
 	const now = new Date().toISOString();
 	// Entries hidden from search engines are counted, but not scored: there is nothing to fix on them.
 	const shown = list.filter((row) => !row.noIndex);
@@ -213,6 +236,7 @@ async function summarize(ctx: Ctx, pass: boolean, known?: AuditRow[]): Promise<A
 		needFixing: shown.filter((row) => row.high > 0).length,
 		toImprove: shown.filter((row) => row.high === 0 && row.medium > 0).length,
 		hidden: list.filter((row) => row.noIndex).length,
+		out: every.filter(isOut).length,
 		findings: [...findingsOf(shown), ...findingsOf(list).filter((finding) => finding.id === "hidden")],
 		scannedAt: pass ? now : (previous?.scannedAt ?? now),
 		history: history.slice(-HISTORY),
@@ -324,7 +348,7 @@ async function loadView(ctx: Ctx): Promise<View> {
 
 async function filterForm(ctx: Ctx): Promise<FormSpec> {
 	const slugs = await scanCollections(ctx);
-	const labels = new Map(((await ctx.schema?.listCollections()) ?? []).map((collection) => [collection.slug, collection.label]));
+	const labels = await labelsOf(ctx);
 	return {
 		id: "audit:filter",
 		submitLabel: "Apply",
@@ -349,6 +373,9 @@ function notScanned(cursor: ScanCursor | null): Block {
 	};
 }
 
+/** Leaves an entry out of the audit (for pages such as a 404 page that are not meant to rank), or puts it back. */
+const outButton = (row: { collection: string; entryId: string }, out: boolean, page?: string) => ({ type: "button", label: out ? "Put back" : "Leave out", action_id: out ? "audit:in" : "audit:out", value: page ? [rowId(row.collection, row.entryId), page] : rowId(row.collection, row.entryId) });
+
 const editLink = (row: { collection: string; entryId: string }) => ({ type: "link", label: "Edit", target: { kind: "content", collection: row.collection, id: row.entryId } });
 
 /** One finding on the Overview: what is wrong, what to do, and the entries to open. */
@@ -365,12 +392,14 @@ function findingBlock(finding: AuditFinding, labels: Map<string, string>, open: 
 				{ key: "edit", label: "", format: "element" },
 				{ key: "collection", label: "Collection" },
 				...(listed.some((row) => row.detail) ? [{ key: "detail", label: "Now" }] : []),
+				{ key: "out", label: "", format: "element" },
 			],
 			rows: listed.map((row) => ({
 				entry: row.title,
 				edit: editLink(row),
 				collection: labels.get(row.collection) ?? row.collection,
 				detail: row.detail,
+				out: outButton(row, false),
 			})),
 		});
 	}
@@ -407,15 +436,16 @@ async function overview(ctx: Ctx, env: Env): Promise<Block[]> {
 		});
 	}
 	if (summary.findings.length) {
-		const labels = new Map(((await ctx.schema?.listCollections().catch(() => [])) ?? []).map((collection) => [collection.slug, collection.label]));
+		const labels = await labelsOf(ctx);
 		summary.findings.forEach((finding, index) => blocks.push(findingBlock(finding, labels, index === 0)));
 	} else {
 		blocks.push(note("No problems found. New and changed entries are checked when they are saved."));
 	}
+	if (summary.out) blocks.push(note(`${plural(summary.out, "entry", "entries")} left out of the audit.`), { type: "actions", elements: [{ type: "button", label: "Show them", action_id: "audit:show", value: "out" }] });
 	// A template's noindex reaches the page but not EmDash's sitemap, which reads only the entry's own setting.
 	if (env.modules.some((module) => module.id === "meta")) {
 		const hidden = Object.entries((await titlesSection.load(ctx.settings)).collections).filter(([, titles]) => titles.noindex).map(([slug]) => slug);
-		const labels = hidden.length ? new Map(((await ctx.schema?.listCollections()) ?? []).map((collection) => [collection.slug, collection.label])) : null;
+		const labels = hidden.length ? await labelsOf(ctx) : null;
 		if (labels) blocks.push(note(`${hidden.map((slug) => labels.get(slug) ?? slug).join(", ")}: hidden from search engines by a template, but EmDash's sitemap still lists these entries.`));
 	}
 	blocks.push(note(cursor ? `Last scanned ${ago(summary.scannedAt).toLowerCase()}. Scanning again: ${progress(cursor.done, summary)}.` : `Last scanned ${ago(summary.scannedAt).toLowerCase()}.`), scanButton(cursor ? "Continue the scan" : "Scan now"));
@@ -423,12 +453,15 @@ async function overview(ctx: Ctx, env: Env): Promise<Block[]> {
 }
 
 async function entriesTab(ctx: Ctx, state: PageState): Promise<Block[]> {
-	const list = (await all(rows(ctx))).map((item) => item.data);
-	if (!list.length) return [notScanned(await ctx.kv.get<ScanCursor>(KEY.cursor))];
+	const every = (await all(rows(ctx))).map((item) => item.data);
+	if (!every.length) return [notScanned(await ctx.kv.get<ScanCursor>(KEY.cursor))];
 	const view = await loadView(ctx);
+	const { isOut, counted } = await scope(ctx);
+	const list = every.filter(view.show === "out" ? isOut : counted);
 	const matches = matcher(list);
 	const keep: Record<string, (row: AuditRow) => boolean> = {
 		all: () => true,
+		out: () => true,
 		fix: (row) => row.high > 0 && !row.noIndex,
 		notitle: (row) => !row.hasSeoTitle,
 	};
@@ -445,7 +478,7 @@ async function entriesTab(ctx: Ctx, state: PageState): Promise<Block[]> {
 		{
 			type: "table",
 			page_action_id: "audit:entries",
-			empty_text: "No entries match.",
+			empty_text: view.show === "out" ? "No entries are left out of the audit." : "No entries match.",
 			columns: [
 				{ key: "entry", label: "Entry" },
 				// Next to the entry, so it stays on screen when a narrow window scrolls the table sideways.
@@ -454,6 +487,7 @@ async function entriesTab(ctx: Ctx, state: PageState): Promise<Block[]> {
 				{ key: "searchTitle", label: "Search title" },
 				{ key: "description", label: "Description" },
 				{ key: "issues", label: "Issues" },
+				{ key: "out", label: "", format: "element" },
 			],
 			rows: shown.slice(0, end).map((row) => ({
 				entry: clip(row.title || "Untitled", 80),
@@ -462,6 +496,8 @@ async function entriesTab(ctx: Ctx, state: PageState): Promise<Block[]> {
 				searchTitle: clip(row.searchTitle, 80) || "Not set",
 				description: clip(row.description, 90) || "Not set",
 				issues: issuesOf(row),
+				// The page the button is on: after "Show all" the host still has the Overview's address.
+				out: outButton(row, view.show === "out", "/content"),
 			})),
 			...(shown.length > end && end < MAX_SHOWN ? { next_cursor: String(end) } : {}),
 		},
@@ -525,10 +561,16 @@ export const audit: Module = {
 	tabs: [
 		{ page: "/", label: "Overview", order: 10, render: (ctx, env) => overview(ctx, env) },
 		{ page: "/content", label: "Entries", order: 10, render: (ctx, _env, state) => entriesTab(ctx, state) },
+		{ page: "/settings", label: "Audit", order: 40, render: async (ctx) => [formBlock(await withCollections(ctx, SETTINGS), await auditSection.load(ctx.settings))] },
 	],
 	widgets: [{ id: "health", title: "SEO health", size: "half", render: (ctx) => widget(ctx) }],
 
 	async act(ctx, env, action) {
+		if (action.id === "settings" && action.values) {
+			await auditSection.save(ctx.settings, readForm(SETTINGS, action.values, await auditSection.load(ctx.settings)));
+			if (await auditSummary(ctx)) await summarize(ctx, false);
+			return ok("Saved");
+		}
 		if (action.id === "scan") {
 			const result = await auditBatch(ctx, env);
 			if (result.busy) return { toast: { type: "info", message: "A scan is already running." } };
@@ -536,20 +578,31 @@ export const audit: Module = {
 			// The page shows how far the scan has got; a message here would show an older count.
 			return {};
 		}
-		if (action.id === "show" && typeof action.value === "string" && FINDINGS.some((finding) => finding.id === action.value)) {
+		const [key, page] = Array.isArray(action.value) ? action.value : [action.value];
+		if ((action.id === "out" || action.id === "in") && typeof key === "string" && key.includes(":")) {
+			const out = await leftOut(ctx);
+			if (action.id === "out") out.add(key);
+			else out.delete(key);
+			if (out.size > MAX_OUT) return fail(`Up to ${MAX_OUT} entries can be left out.`);
+			await ctx.kv.set(KEY.out, [...out]);
+			if (await auditSummary(ctx)) await summarize(ctx, false);
+			return { ...ok(action.id === "out" ? "Left out of the audit. Put it back from the Content tab." : "Back in the audit."), ...(page === "/content" ? { page } : {}) };
+		}
+		if (action.id === "show" && typeof action.value === "string" && (action.value === "out" || FINDINGS.some((finding) => finding.id === action.value))) {
 			await ctx.kv.set(KEY.view, { ...DEFAULT_VIEW, show: action.value });
 			return { page: "/content" };
 		}
 		if (action.id === "filter" && action.values) {
 			const view = await loadView(ctx);
 			await ctx.kv.set(KEY.view, readForm(await filterForm(ctx), action.values, view));
-			return {};
+			// Both come only from the Content tab, which "Show all" opens under the Overview's address.
+			return { page: "/content" };
 		}
 		if (action.id === "entries") {
 			// Sorting and paging of the entries table; the page itself comes from the action value.
 			const sort = isRecord(action.value) && isRecord(action.value.sort) ? action.value.sort : null;
 			if (sort?.key === "score" && (sort.dir === "asc" || sort.dir === "desc")) await ctx.kv.set(KEY.view, { ...(await loadView(ctx)), sort: sort.dir });
-			return {};
+			return { page: "/content" };
 		}
 		return null;
 	},
