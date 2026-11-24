@@ -11,7 +11,7 @@
 import { formBlock, type FormSpec, readForm, textField, toggleField } from "../admin/forms.js";
 import { type Analysis, DESCRIPTION_LIMIT, NOT_SCORED, SEVERITY_LABEL, TITLE_LIMIT, analyze, bySeverity, parseKeywords } from "../core/analysis.js";
 import { type EntryStore, saveEntry } from "../core/entry.js";
-import { type Block, type Ctx, type EntryView, type Env, type Module, entryFacts, fail, ok, store, str, note } from "../kit.js";
+import { type ActResult, type Block, type Ctx, type EntryView, type Env, type Module, entryFacts, fail, ok, store, str, note } from "../kit.js";
 import { type SearchAppearance, searchAppearance } from "./meta.js";
 
 /**
@@ -99,7 +99,38 @@ const shown = (label: string, value: string): Block[] => [
 	{ type: "section", text: value || "Not set" },
 ];
 
-export const entry: Module = {
+type Seo = NonNullable<EntryView["seo"]>;
+
+/**
+ * Editing EmDash's own search fields in the panel. A sandboxed plugin can read them but not write
+ * them, so only trusted builds pass this to `entryModule`, and the marketplace bundle leaves it out.
+ */
+export const seoFields = {
+	blocks: (appearance: SearchAppearance, view: EntryView, seo: Seo): Block[] => [
+		formBlock(searchForm(appearance, view), { title: seo.title ?? "", description: seo.description ?? "", canonical: seo.canonical ?? "", noIndex: seo.noIndex }),
+		{ type: "context", text: "EmDash's own SEO fields, edited here. Leave the title or description empty to use what is shown in grey." },
+	],
+	async save(ctx: Ctx, view: EntryView, current: Seo, values: Record<string, unknown>): Promise<ActResult> {
+		const update = (ctx.content as { update?: (collection: string, id: string, data: Record<string, unknown>) => Promise<unknown> } | undefined)?.update;
+		if (!update) return fail("SEOdash is not allowed to edit content on this site.");
+		const text = (key: string) => (typeof values[key] === "string" ? str(values[key]).trim().slice(0, 2000) : "");
+		// Only what changed is written, so a field edited elsewhere in the meantime is not undone.
+		const seo: Record<string, unknown> = {};
+		// The OG image is left to the editor's SEO section, which picks it from the media library.
+		for (const key of ["title", "description", "canonical"] as const) {
+			if (!(key in values)) continue;
+			const next = text(key);
+			if (next !== (current[key] ?? "")) seo[key] = next || null;
+		}
+		if (typeof values.noIndex === "boolean" && values.noIndex !== current.noIndex) seo.noIndex = values.noIndex;
+		if (!Object.keys(seo).length) return { toast: { type: "info", message: "Nothing changed" } };
+		await update.call(ctx.content, view.collection, view.id, { seo });
+		return { toast: { type: "success", message: "Saved" }, refresh: true };
+	},
+};
+
+/** The entry panel. Trusted builds pass `seoFields`; the sandbox cannot write those fields. */
+export const entryModule = (edit?: typeof seoFields): Module => ({
 	id: "entry",
 	panelActions: ["search", "social", "robots", "keywords", "checks"],
 	capabilities: ["content:read", "content:write", "schema:read"],
@@ -120,14 +151,9 @@ export const entry: Module = {
 				if (view.url) blocks.push(note(view.url));
 				if (!view.seo) {
 					blocks.push({ type: "banner", description: "SEO fields are switched off for this collection. Turn them on in its settings to set a search title and description." });
-				} else if (!env.trusted) {
-					// EmDash 1.5 lets a sandboxed plugin read these fields but not write them.
-					blocks.push(note("Edit the search title and description in the editor's SEO section."));
 				} else {
-					blocks.push(formBlock(searchForm(appearance, view), { title: view.seo.title ?? "", description: view.seo.description ?? "", image: view.seo.image ?? "", canonical: view.seo.canonical ?? "", noIndex: view.seo.noIndex }), {
-						type: "context",
-						text: "EmDash's own SEO fields, edited here. Leave the title or description empty to use what is shown in grey.",
-					});
+					// A sandboxed plugin can read these fields but not write them.
+					blocks.push(...(edit && env.trusted ? edit.blocks(appearance, view, view.seo) : [note("Edit the search title and description in the editor's SEO section.")]));
 				}
 				return blocks;
 			},
@@ -195,26 +221,14 @@ export const entry: Module = {
 		const values = action.values;
 		if (action.id === "search") {
 			if (!view.seo) return fail("SEO fields are switched off for this collection.");
-			if (!env.trusted) return fail("Edit these in the SEO section of the editor.");
-			const update = (ctx.content as { update?: (collection: string, id: string, data: Record<string, unknown>) => Promise<unknown> } | undefined)?.update;
-			if (!update) return fail("SEOdash is not allowed to edit content on this site.");
-			const text = (key: string) => (typeof values[key] === "string" ? str(values[key]).trim().slice(0, 2000) : "");
-			// Only what changed is written, so a field edited elsewhere in the meantime is not undone.
-			const seo: Record<string, unknown> = {};
-			// The OG image is left to the editor's SEO section, which picks it from the media library.
-			for (const key of ["title", "description", "canonical"] as const) {
-				if (!(key in values)) continue;
-				const next = text(key);
-				if (next !== (view.seo[key] ?? "")) seo[key] = next || null;
-			}
-			if (typeof values.noIndex === "boolean" && values.noIndex !== view.seo.noIndex) seo.noIndex = values.noIndex;
-			if (!Object.keys(seo).length) return { toast: { type: "info", message: "Nothing changed" } };
-			await update.call(ctx.content, view.collection, view.id, { seo });
-			return { toast: { type: "success", message: "Saved" }, refresh: true };
+			return edit && env.trusted ? edit.save(ctx, view, view.seo, values) : fail("Edit these in the SEO section of the editor.");
 		}
 		const spec = action.id === "social" ? socialForm(view) : action.id === "robots" ? ROBOTS : action.id === "keywords" ? KEYWORDS : null;
 		if (!spec) return null;
 		await saveEntry(entries(ctx), readForm(spec, values, view.record));
 		return ok(action.id === "keywords" ? "Analyzed" : "Saved");
 	},
-};
+});
+
+/** The entry panel as trusted builds use it. */
+export const entry = /* @__PURE__ */ entryModule(seoFields);

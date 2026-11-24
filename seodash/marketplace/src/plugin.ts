@@ -2,13 +2,13 @@
  * SEOdash: the marketplace (sandboxed) build.
  *
  * The same feature modules as the trusted plugin, limited to the core set that fits the
- * marketplace's 128 KB code limit (see MODULES in src/modules/index.ts). EmDash's site settings are not readable from the
+ * marketplace's 128 KB code limit (see MODULES in src/modules/marketplace.ts). EmDash's site settings are not readable from the
  * sandbox, so the few values SEOdash would read from them are asked for under Settings → Verification.
  */
 import { type PluginContext, pluginResponse, type SandboxedPlugin, type SandboxedRouteContext } from "emdash/plugin";
 import type { RawReply } from "../../src/kit.js";
 import { compose } from "../../src/compose.js";
-import { MODULES } from "../../src/modules/index.js";
+import { MODULES } from "../../src/modules/marketplace.js";
 
 const built = compose(MODULES, { trusted: false });
 const { hooks, uses } = built;

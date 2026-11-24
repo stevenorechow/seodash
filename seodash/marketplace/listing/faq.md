@@ -2,7 +2,7 @@
 No. The search title, description, image, canonical address and "hide from search engines" switch are EmDash's own fields. The SEOdash panel shows and scores them. A sandboxed plugin can read them but not change them, so they are edited in the SEO section of the editor.
 
 **Does it add redirects, a sitemap or a robots.txt editor?**
-No. EmDash has those already.
+No. EmDash has those already. The one redirect SEOdash adds, with your approval of the redirects permission, serves the IndexNow key file at the site root while IndexNow is on.
 
 **Will it change my site when I install it?**
 No. With default settings the public pages are unchanged.
@@ -14,7 +14,7 @@ EmDash's own SEO fields keep their values. The uninstall dialog asks whether to 
 Only IndexNow, after you switch instant indexing on. It receives your own page addresses and your IndexNow key.
 
 **On Cloudflare, SEOdash's pages say "Plugin responded with 404" after installing.**
-On EmDash 1.5 a new plugin reaches only some of the site's running copies at first, so some requests miss it, tags included. Deploy the site once to fix it.
+On EmDash 1.5 a new plugin reaches only some of the site's running copies at first, so some requests miss it, tags included. Deploy the site once to fix it. EmDash 1.6 fixes this.
 
 **How long does a site scan take?**
 A sandboxed plugin may make about 30 requests to EmDash per run, so the scan works in small batches: about 15 to 25 entries each time the button is pressed. A scheduled job continues an unfinished scan every five minutes.

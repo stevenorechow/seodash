@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createPluginTestHost, type PluginTestHost } from "@emdash-cms/plugin-test";
+import { createPluginRuntimeTestHost, createPluginTestHost, type PluginTestHost } from "@emdash-cms/plugin-test";
 
 let host: PluginTestHost | undefined;
 
@@ -64,5 +64,30 @@ describe("SEOdash in the sandbox", () => {
 		const on = (await host.invokeRoute("admin", { type: "block_action", action_id: "features:on", page: "/schema", value: "schema" })) as Response;
 		expect(notice(on)).toMatchObject({ type: "success" });
 		expect(JSON.stringify(on)).not.toContain("Structured data is off");
+	});
+});
+
+
+describe("SEOdash on EmDash's runtime", () => {
+	it("serves the IndexNow key at the site root through a redirect, and removes it when switched off", async () => {
+		const runtime = await createPluginRuntimeTestHost({ site: { name: "Acme", url: "https://acme.test" } });
+		await runtime.admin.loadPage("/settings");
+		const values = { indexnow: true, google: false, onPublish: true, collections: [] };
+		await runtime.admin.submit("/settings", "indexing:settings", values);
+		const { key } = (await runtime.inspect.setting<{ key: string }>("config:indexing")) ?? (await runtime.inspect.settings.raw<{ key: string }>("config:indexing"))!;
+		expect(key).toMatch(/^[0-9a-f]{32}$/);
+		expect(await runtime.inspect.redirects()).toEqual([expect.objectContaining({ source: `/${key}.txt`, destination: expect.stringMatching(/^\/_emdash\/api\/plugins\/[^/]+\/indexnow-key$/), type: 301 })]);
+		await runtime.admin.submit("/settings", "indexing:settings", { ...values, indexnow: false });
+		expect(await runtime.inspect.redirects()).toEqual([]);
+	});
+
+	it("shows the entry panel with EmDash's SEO fields read-only", async () => {
+		const runtime = await createPluginRuntimeTestHost({ site: { name: "Acme", url: "https://acme.test" } });
+		await runtime.fixtures.collection({ slug: "posts", label: "Posts", labelSingular: "Post", supports: ["seo"], fields: [{ slug: "title", label: "Title", type: "string" }] } as never);
+		const item = await runtime.fixtures.content("posts", { data: { title: "Hello" }, slug: "hello", status: "published" } as never);
+		const panel = JSON.stringify(await runtime.admin.loadEditorPanel("seo", "posts", item.id));
+		for (const text of ["SEO score", "Content analysis", "Edit the search title and description in the editor's SEO section."]) expect(panel).toContain(text);
+		// The sandbox cannot write these fields, so no search form is offered.
+		expect(panel).not.toContain("entry:search");
 	});
 });

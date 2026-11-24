@@ -246,6 +246,8 @@ export interface Module {
 	/** Omit for a module that is always on. */
 	feature?: Feature;
 	capabilities?: string[];
+	/** Capabilities only the sandboxed build needs, where the plugin cannot do the job itself. */
+	sandboxCapabilities?: string[];
 	allowedHosts?: string[];
 	storage?: Record<string, { indexes: Array<string | string[]> }>;
 	/** API keys and tokens the module stores with the `secrets` helper: name → label. EmDash encrypts them. */
@@ -265,6 +267,8 @@ export interface Module {
 		unpublish?(ctx: Ctx, env: Env, event: ContentEvent): Promise<void>;
 		delete?(ctx: Ctx, env: Env, event: { collection: string; id: string }): Promise<void>;
 		upload?(ctx: Ctx, env: Env, media: MediaEvent): Promise<void>;
+		/** The plugin is being uninstalled: remove anything it added outside its own data. Runs whether or not the feature is on. */
+		uninstall?(ctx: Ctx): Promise<void>;
 	};
 	cron?: CronJob[];
 	routes?: Record<string, RouteDef>;

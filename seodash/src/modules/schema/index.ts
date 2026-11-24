@@ -13,7 +13,7 @@
  * pages) and the first contribution of an id wins, so the WebSite node here takes that id on
  * non-article pages and an entry's article schema takes it on article pages.
  */
-import { formBlock, type FieldSpec, type FormSpec, readForm } from "../../admin/forms.js";
+import { formBlock, type FieldSpec, type FormSpec, mediaLink, readForm } from "../../admin/forms.js";
 import { defineSection } from "../../core/settings.js";
 import { VARIABLE_HELP, type VariableContext, renderTemplate } from "../../core/variables.js";
 import { type Action, type ActResult, type Block, type Contribution, type Ctx, type EntryView, type Env, type HeadState, type Module, type PageState, type PageTab, all, fail, isRecord, ok, store, str, note } from "../../kit.js";
@@ -547,6 +547,7 @@ export const schema: Module = {
 				return [
 					note("Who is behind the site. Search engines use this for the site's name, logo and contact details."),
 					formBlock(publisherForm(ctx.site.name), settings),
+					...mediaLink(ctx.site.url),
 					{
 						type: "fields",
 						fields: [
@@ -568,6 +569,7 @@ export const schema: Module = {
 				return [
 					note("For a business with a physical location or a service area: its address, contact details and opening hours."),
 					formBlock(localForm(ctx.site.name), settings),
+					...mediaLink(ctx.site.url),
 					{ type: "accordion", label: "Opening hours", default_open: settings.enabled, blocks: [note("Times in 24-hour form, e.g. 09:00. Use the second pair for a business that closes in the middle of the day."), formBlock(HOURS, settings)] },
 				];
 			},

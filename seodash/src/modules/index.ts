@@ -1,6 +1,6 @@
 /**
- * The feature modules, in the order their head tags are printed. The trusted build and the
- * marketplace build carry the same set, which fits the marketplace's 128 KB code limit.
+ * The trusted build's feature modules, in the order their head tags are printed. The marketplace
+ * build's list (`marketplace.ts`) has the same features, without what the sandbox cannot use.
  */
 import type { Module } from "../kit.js";
 import { audit } from "./audit.js";

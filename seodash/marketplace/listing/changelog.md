@@ -1,25 +1,24 @@
+## 1.0.4
+
+- **IndexNow key file served for you.** On EmDash 1.6 or later, switching IndexNow on adds a redirect from the key file's address at the site root, listed under Redirects. It is removed when IndexNow or instant indexing is switched off, or SEOdash is uninstalled, and an existing redirect at that address is never replaced. This needs a new permission to manage redirects, which EmDash asks you to approve when updating. Search engines are expected to follow the redirect; this has not yet been confirmed with IndexNow itself. On EmDash 1.5, which ignores the redirect, download the file and add it to the public folder as before.
+- **Image fields** (default sharing image, publisher logo, local business image) link to the media library, where Copy URL gives the address to paste.
+- **Fixed:** the Settings and Structured data pages failed to load on a site with no collections.
+
 ## 1.0.3
 
-- **Leave entries out of the audit**, such as a 404 page, with the Leave out button on each finding; put them back from the Content tab. Settings → Audit limits the audit to chosen collections.
-- **Hidden entries** count only as hidden, not as thin or missing a description.
-- **IndexNow key file** downloads from the Indexing tab.
-- **Editor panel.** The sharing image is set with EmDash's OG Image field and its media library picker. The panel shows only what it can change.
-- **Settings.** Help folded into labels.
-- **Google Indexing API removed** to fit the registry size limit. Google only uses it for job postings and livestreams. IndexNow is unchanged.
-- **X title, description and image** fields show only where an entry already has one; X uses the sharing values otherwise.
+- Leave entries out of the audit, such as a 404 page; Settings → Audit limits the audit to chosen collections.
+- Hidden entries count only as hidden.
+- The editor panel leaves the sharing image to EmDash's OG Image field and shows only what it can change.
+- Google Indexing API removed to fit the registry size limit. IndexNow is unchanged.
 
 ## 1.0.2
 
-- **Every finding names its entries.** The Overview lists the entries behind each finding, worst first, with an Edit link and what to change. "Show all" opens the Content tab filtered to that finding.
-- **Content tab.** Filter by any finding, and the Issues column says which issues an entry has instead of a count.
-- **Dashboard widget.** Shows the entry to fix first for each top finding, with an Edit link.
-- **Content analysis.** Every failing check says what to do, and the check list reads properly in the narrow editor panel.
-- **Messages.** The outcome of an action shows at the top of the page or panel instead of a pop-up over the admin header. The scan button no longer reports an out-of-date count.
+Every finding names its entries with an Edit link; the Content tab filters by finding; the dashboard widget shows what to fix first; every failing check says what to do.
 
 ## 1.0.1
 
-Screenshots for the listing. No changes to the plugin.
+Screenshots for the listing.
 
 ## 1.0.0
 
-First release: editor panel, titles and meta, social cards, structured data, site audit, instant indexing, publishing rules, settings import and export, and a switch for each feature.
+First release.

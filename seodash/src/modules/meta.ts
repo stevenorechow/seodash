@@ -8,7 +8,7 @@
  * the site's main social profiles (Settings → SEO and Settings → Social). SEOdash reads those and
  * only asks for them itself where the host does not expose them (the marketplace sandbox).
  */
-import { formBlock, type FormSpec, readForm, textField, toggleField } from "../admin/forms.js";
+import { formBlock, type FormSpec, readForm, textField, toggleField, mediaLink } from "../admin/forms.js";
 import { type AdvancedSettings, buildHead, type CollectionTitles, type Identity, type SocialSettings, type TitlesSettings } from "../core/head.js";
 import { defineSection, merge } from "../core/settings.js";
 import { VARIABLE_HELP, type VariableContext, renderTemplate } from "../core/variables.js";
@@ -254,7 +254,7 @@ const FALLBACK: FormSpec = {
 	id: "meta:site",
 	fields: [
 		textField("separator", "Title separator", { placeholder: "-" }),
-		textField("defaultImage", "Default sharing image URL"),
+		{ kind: "image", key: "defaultImage", label: "Default sharing image" },
 		textField("google", "Google Search Console verification code"),
 		textField("bing", "Bing Webmaster Tools verification code"),
 		textField("twitter", "X (Twitter) profile URL"),
@@ -374,7 +374,7 @@ export const meta: Module = {
 					...(core ? coreFields(core, "verification") : []),
 					note("Paste the code each service gives you (the content value of its meta tag)."),
 					formBlock(VERIFICATION, await advancedSection.load(ctx.settings)),
-					...(core ? [] : [{ type: "divider" } as Block, note("Site details") as Block, formBlock(FALLBACK, await fallbackSection.load(ctx.settings))]),
+					...(core ? [] : [{ type: "divider" } as Block, note("Site details") as Block, formBlock(FALLBACK, await fallbackSection.load(ctx.settings)), ...mediaLink(ctx.site.url)]),
 				];
 			},
 		},

@@ -11,7 +11,7 @@
 		"indexnow",
 		"audit"
 	],
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"license": "GPL-3.0-only",
 	"publisher": "did:plc:cyexkjh5tyjfipyznr7kz2so",
 	"author": {
@@ -70,6 +70,7 @@
 		"content:read",
 		"hooks.content-policy:register",
 		"network:request",
+		"redirects:write",
 		"schema:read",
 		"taxonomies:read"
 	],

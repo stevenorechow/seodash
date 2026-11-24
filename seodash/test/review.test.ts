@@ -189,33 +189,86 @@ describe("the audit scan", () => {
 });
 
 describe("IndexNow in the sandbox", () => {
-	it("asks for a key file at the site root and cannot be switched on until it is confirmed", async () => {
+	const ROUTE = "/_emdash/api/plugins/seodash/indexnow-key";
+	const on = { indexnow: true, google: false, onPublish: true, collections: "" };
+	const off = { ...on, indexnow: false };
+	const config = async (h: ReturnType<typeof harness>) => (await h.ctx.settings.get<{ key: string; keyFile: boolean; served?: boolean; indexnow: boolean }>("config:indexing"))!;
+
+	it("serves the key file at the site root with a redirect when IndexNow is switched on", async () => {
 		const h = harness(MODULES, { ...posts, core: null, http: [{ match: "api.indexnow.org", status: 202, body: "" }] });
 		const tab = await h.page("/settings");
 		valid(tab);
-		const key = (await h.ctx.settings.get<{ key: string }>("config:indexing"))!.key;
+		const { key } = await config(h);
 		expect(key).toMatch(/^[0-9a-f]{32}$/);
 		const form = walk(tab.blocks as Any[]).find((block) => block.block_id === "indexing:settings")!;
-		const file = form.fields.find((field: Any) => field.action_id === "file");
-		expect(file).toMatchObject({ initial_value: `https://acme.test/${key}.txt`, condition: { field: "indexnow", eq: true } });
-		// The file comes as a download, named and filled the way IndexNow expects.
-		const link = walk(tab.blocks as Any[]).flatMap((block) => block.elements ?? []).find((element: Any) => element.label === "Download key file")!;
-		expect(link.target).toEqual({ kind: "external", url: "https://acme.test/_emdash/api/plugins/seodash/indexnow-key" });
+		expect(form.fields.find((field: Any) => field.action_id === "file")).toMatchObject({ initial_value: `https://acme.test/${key}.txt`, condition: { field: "indexnow", eq: true } });
+		// Nothing to confirm by hand any more.
+		expect(form.fields.map((field: Any) => field.action_id)).not.toContain("keyFile");
+		expect(textOf(tab)).toContain("with a redirect");
+		// No download step before anything is switched on.
+		expect(textOf(tab)).not.toContain("Download key file");
 		expect(await h.built.extraRoutes["indexnow-key"]!.handler({}, h.ctx, h.built.env)).toEqual({
 			status: 200,
 			body: key,
 			headers: { "Content-Type": "text/plain; charset=utf-8", "Content-Disposition": `attachment; filename="${key}.txt"` },
 		});
-		expect(form.fields.find((field: Any) => field.action_id === "keyFile")).toMatchObject({ type: "toggle", condition: { field: "indexnow", eq: true } });
-		const refused = await h.submit("/settings", "indexing:settings", { indexnow: true, keyFile: false, google: false, onPublish: true, collections: "" });
-		expect(refused.toast).toMatchObject({ type: "error" });
-		expect((await h.ctx.settings.get<{ indexnow: boolean }>("config:indexing"))!.indexnow).toBe(false);
-		const saved = await h.submit("/settings", "indexing:settings", { indexnow: true, keyFile: true, google: false, onPublish: true, collections: "" });
+		expect(h.ctx.rules.size).toBe(0);
+		const saved = await h.submit("/settings", "indexing:settings", on);
 		expect(saved.toast).toMatchObject({ type: "success" });
-		// Once the file is in place, the download step goes away.
-		expect(textOf(await h.page("/settings"))).not.toContain("Download key file");
+		expect([...h.ctx.rules.values()]).toEqual([expect.objectContaining({ source: `/${key}.txt`, destination: ROUTE, type: 301, groupName: "IndexNow" })]);
+		expect(await config(h)).toMatchObject({ indexnow: true, keyFile: true, served: true });
+		const served = await h.page("/settings");
+		expect(textOf(served)).toContain("A redirect under Redirects serves the key file");
+		// The file still comes as a download, for EmDash 1.5, which ignores the redirect.
+		const link = walk(served.blocks as Any[]).flatMap((block) => block.elements ?? []).find((element: Any) => element.label === "Download key file")!;
+		expect(link.target).toEqual({ kind: "external", url: `https://acme.test${ROUTE}` });
+		// Saving again does not add a second rule.
+		await h.submit("/settings", "indexing:settings", on);
+		expect(h.ctx.rules.size).toBe(1);
 		await h.submit("/settings", "indexing:submit", { urls: "https://acme.test/posts/hello" });
 		expect(JSON.parse(String(h.ctx.requests[0]!.init!.body))).toMatchObject({ key, keyLocation: `https://acme.test/${key}.txt` });
+	});
+
+	it("never replaces a redirect someone else made at the key file's address", async () => {
+		const h = harness(MODULES, { ...posts, core: null });
+		await h.page("/settings");
+		const { key } = await config(h);
+		h.ctx.rules.set("mine", { id: "mine", source: `/${key}.txt`, destination: "/elsewhere", type: 302, groupName: null, rev: 1 });
+		const refused = await h.submit("/settings", "indexing:settings", on);
+		expect(refused.toast).toMatchObject({ type: "error" });
+		expect((await config(h)).indexnow).toBe(false);
+		expect([...h.ctx.rules.values()]).toEqual([expect.objectContaining({ id: "mine", destination: "/elsewhere" })]);
+		// Switching off leaves it alone too.
+		await h.submit("/settings", "indexing:settings", off);
+		expect(h.ctx.rules.has("mine")).toBe(true);
+	});
+
+	it("removes its redirect when IndexNow, the feature or the plugin goes, and only its own", async () => {
+		const h = harness(MODULES, { ...posts, core: null, redirects: [{ source: "/old", destination: "/new" }] });
+		await h.page("/settings");
+		await h.submit("/settings", "indexing:settings", on);
+		expect(h.ctx.rules.size).toBe(2);
+		await h.submit("/settings", "indexing:settings", off);
+		expect([...h.ctx.rules.values()].map((rule) => rule.source)).toEqual(["/old"]);
+		expect(await config(h)).toMatchObject({ indexnow: false, keyFile: false, served: false });
+		// Off means off: the feature switch takes the redirect with it, and brings it back.
+		await h.submit("/settings", "indexing:settings", on);
+		await h.submit("/settings", "features:save", { indexing: false });
+		expect(h.ctx.rules.size).toBe(1);
+		await h.submit("/settings", "features:save", { indexing: true });
+		expect(h.ctx.rules.size).toBe(2);
+		await h.built.hooks.uninstall({ deleteData: false }, h.ctx);
+		expect([...h.ctx.rules.values()].map((rule) => rule.source)).toEqual(["/old"]);
+	});
+
+	it("adds no redirect for a site that already put the key file in place by hand", async () => {
+		const h = harness(MODULES, { ...posts, core: null });
+		await h.ctx.settings.set("config:indexing", { indexnow: false, google: false, onPublish: true, collections: "", key: "0123456789abcdef0123456789abcdef", keyFile: true });
+		const tab = await h.page("/settings");
+		expect(textOf(tab)).not.toContain("Download key file");
+		await h.submit("/settings", "indexing:settings", on);
+		expect(h.ctx.rules.size).toBe(0);
+		expect((await config(h)).indexnow).toBe(true);
 	});
 
 	it("leaves Google's Indexing API out of the free build", async () => {
@@ -237,5 +290,39 @@ describe("IndexNow in the sandbox", () => {
 		const sent = await h.submit("/settings", "indexing:submit", { urls: "https://acme.test/posts/hello" });
 		expect(sent.toast).toMatchObject({ type: "error" });
 		expect(h.ctx.requests).toEqual([]);
+	});
+});
+
+describe("image fields", () => {
+	const field = (response: unknown, form: string, key: string) => walk((response as { blocks: Any[] }).blocks).find((block) => block.block_id === form)!.fields.find((element: Any) => element.action_id === key);
+
+	// Plugins only get sign-in addresses for media library items, which crawlers cannot open, so the
+	// public address is pasted from the media library.
+	it("take the public address copied from the media library, with a link to it", async () => {
+		const h = harness(MODULES, { ...posts, core: null });
+		for (const [page, form, key] of [["/schema", "schema:publisher", "logo"], ["/schema", "schema:local", "image"], ["/settings", "meta:site", "defaultImage"]] as const) {
+			const response = await h.page(page);
+			valid(response);
+			expect(field(response, form, key), key).toMatchObject({ type: "text_input", placeholder: "Paste the address from Media (Copy URL)" });
+			const link = walk((response as { blocks: Any[] }).blocks).flatMap((block) => block.elements ?? []).find((element: Any) => element.label === "Open media library");
+			expect(link?.target).toEqual({ kind: "external", url: "https://acme.test/_emdash/admin/media" });
+		}
+		await h.submit("/schema", "schema:publisher", { type: "Organization", name: "Acme", logo: "https://acme.test/_emdash/api/media/file/logo.png" });
+		expect(field(await h.page("/schema"), "schema:publisher", "logo").initial_value).toBe("https://acme.test/_emdash/api/media/file/logo.png");
+	});
+
+	it("ask for no media access, and only the sandbox asks to add redirects", () => {
+		const sandboxed = harness(MODULES, { ...posts, core: null });
+		const trusted = harness(MODULES, posts);
+		expect(sandboxed.built.capabilities).toContain("redirects:write");
+		expect(trusted.built.capabilities).not.toContain("redirects:write");
+		for (const h of [sandboxed, trusted]) expect(h.built.capabilities.filter((capability: string) => capability.startsWith("media:"))).toEqual([]);
+	});
+});
+
+describe("a site without collections", () => {
+	it("still renders every settings form", async () => {
+		const h = harness(MODULES, { collections: [], content: {}, core: null });
+		for (const page of ["/overview", "/content", "/titles", "/social", "/schema", "/settings"]) valid(await h.page(page));
 	});
 });

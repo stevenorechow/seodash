@@ -29,9 +29,11 @@ export interface IndexingSettings {
 	 * cannot serve a file there; the trusted build serves `/indexnow-key.txt` itself.
 	 */
 	keyFile: boolean;
+	/** The sandbox serves the key file at the site root through a redirect in EmDash's Redirects. */
+	served: boolean;
 }
 
-export const indexingSection = defineSection<IndexingSettings>("indexing", { indexnow: false, google: false, onPublish: true, collections: "", key: "", keyFile: false });
+export const indexingSection = defineSection<IndexingSettings>("indexing", { indexnow: false, google: false, onPublish: true, collections: "", key: "", keyFile: false, served: false });
 
 export interface LogRow {
 	url: string;
@@ -56,6 +58,33 @@ const newKey = () => [...crypto.getRandomValues(new Uint8Array(16))].map((byte) 
  * at the site root: a plugin route cannot serve it.
  */
 export const keyLocation = (siteUrl: string, settings: Pick<IndexingSettings, "key" | "keyFile">) => `${siteUrl.replace(/\/+$/, "")}/${settings.keyFile ? settings.key : "indexnow-key"}.txt`;
+
+const keyRoute = (ctx: Ctx) => `/_emdash/api/plugins/${ctx.plugin.id}/indexnow-key`;
+
+/** The redirect at `/<key>.txt`, if there is one. */
+async function rootRule(ctx: Ctx, key: string) {
+	const { items } = (await ctx.redirects?.list({ search: key, limit: 10 })) ?? { items: [] };
+	return items.find((rule) => rule.source === `/${key}.txt`);
+}
+
+/**
+ * Serves the key file at the site root with a redirect to the key route (EmDash applies redirects
+ * to file addresses from 1.6). A redirect someone else made there is left alone. Returns why not.
+ */
+async function serveKey(ctx: Ctx, key: string): Promise<string | null> {
+	const rule = await rootRule(ctx, key);
+	if (rule) return rule.destination === keyRoute(ctx) ? null : `/${key}.txt already redirects elsewhere. Remove that redirect first.`;
+	if (!ctx.redirects?.create) return "Redirects are not allowed.";
+	await ctx.redirects.create({ source: `/${key}.txt`, destination: keyRoute(ctx), type: 301, groupName: "IndexNow" });
+	return null;
+}
+
+/** Removes the redirect `serveKey` made, and only that one. */
+async function unserveKey(ctx: Ctx, key: string): Promise<void> {
+	const rule = await rootRule(ctx, key);
+	const current = rule?.destination === keyRoute(ctx) ? await ctx.redirects?.get(rule.id) : null;
+	if (current) await ctx.redirects?.delete?.(current.redirect.id, { _rev: current._rev });
+}
 
 async function record(ctx: Ctx, rows: LogRow[]): Promise<void> {
 	const collection = log(ctx);
@@ -155,10 +184,7 @@ function settingsForm(trusted: boolean, google: boolean, askKey: boolean, file =
 			toggleField("indexnow", "IndexNow (Bing, Yandex, Naver and others)"),
 			...(trusted
 				? file ? [textField("file", "Key file, served automatically", { when: on })] : []
-				: [
-						...(file ? [textField("file", "Key file address", { when: on })] : []),
-						toggleField("keyFile", "The key file is in place", { when: on }),
-					]),
+				: file ? [textField("file", "Key file address", { when: on })] : []),
 			...(google ? [toggleField("google", "Google Indexing API", { description: "Google only acts on these for job postings and livestream pages." })] : []),
 			...(google && askKey ? [{ kind: "secret", key: "googleKey", label: "Google service account key (JSON)", when: { field: "google", eq: true } } as const] : []),
 			toggleField("onPublish", "Send automatically when an entry is published or updated"),
@@ -178,6 +204,8 @@ export const indexingModule = (google?: GoogleEngine): Module => {
 	feature: { label: "Instant indexing", description: "Tells search engines about new and changed pages right away." },
 	...(google ? { secrets: { [google.secret]: "Google service account key" } } : {}),
 	capabilities: ["network:request", "content:read"],
+	// The trusted build serves the key file at the site root itself.
+	sandboxCapabilities: ["redirects:write"],
 	allowedHosts: ["api.indexnow.org", ...(google?.hosts ?? [])],
 	storage: { indexing: { indexes: ["at", "entryKey", ["entryKey", "at"]] } },
 	routes: {
@@ -209,11 +237,12 @@ export const indexingModule = (google?: GoogleEngine): Module => {
 				const askKey = !env.modules.some((module) => module.id === "reports");
 				const blocks: Block[] = [note("Tell search engines about new and changed pages right away.")];
 				// A sandboxed plugin cannot serve a file at the site root, so the owner adds it once.
-				if (!env.trusted && !settings.keyFile && ctx.site.url) {
-					blocks.push(note("IndexNow checks for a key file at the site root. Download it, add it to the site's public folder and deploy, then switch IndexNow on."), {
-						type: "actions",
-						elements: [{ type: "link", label: "Download key file", target: { kind: "external", url: `${ctx.site.url.replace(/\/+$/, "")}/_emdash/api/plugins/${ctx.plugin.id}/indexnow-key` }, appearance: "secondary" }],
-					});
+				if (!env.trusted && ctx.site.url && (settings.served || !settings.keyFile)) {
+					// The download is only for EmDash 1.5, which ignores redirects for file addresses.
+					blocks.push(
+						note(settings.served ? "A redirect under Redirects serves the key file at the site root. EmDash 1.5 ignores it: download the file and add it to the site's public folder." : "Switching IndexNow on serves its key file at the site root with a redirect (EmDash 1.6 or later)."),
+						...(settings.served ? [{ type: "actions", elements: [{ type: "link", label: "Download key file", target: { kind: "external", url: `${ctx.site.url.replace(/\/+$/, "")}/_emdash/api/plugins/${ctx.plugin.id}/indexnow-key` }, appearance: "secondary" }] } as Block] : []),
+					);
 				}
 				blocks.push(
 					formBlock(await withCollections(ctx, settingsForm(env.trusted, !!google, askKey, file)), { ...settings, file }, { googleKey: hasKey }),
@@ -271,11 +300,19 @@ export const indexingModule = (google?: GoogleEngine): Module => {
 		if (action.id === "settings") {
 			const spec = settingsForm(env.trusted, !!google, !env.modules.some((module) => module.id === "reports"));
 			const next = readForm(spec, action.values, await indexingSection.load(ctx.settings));
-			if (!env.trusted && next.indexnow && !next.keyFile) return fail("Add the key file to the site root and confirm it is in place before switching on IndexNow.");
+			next.key ||= newKey();
+			if (!env.trusted && next.indexnow && !next.keyFile) {
+				const why = await serveKey(ctx, next.key);
+				if (why) return fail(why);
+				next.keyFile = next.served = true;
+			}
+			if (!next.indexnow && next.served) {
+				await unserveKey(ctx, next.key);
+				next.keyFile = next.served = false;
+			}
 			const key = google && readSecrets(spec, action.values).googleKey;
 			if (key && !google.parse(key)) return fail("That is not a service account key. Paste the whole JSON file.");
 			if (key) await secrets.set(ctx.settings, google.secret, key);
-			next.key ||= newKey();
 			await indexingSection.save(ctx.settings, next);
 			return ok("Saved");
 		}
@@ -288,6 +325,15 @@ export const indexingModule = (google?: GoogleEngine): Module => {
 	},
 
 	on: {
+		// Off means off: the redirect goes with the feature and comes back with it.
+		async toggle(ctx, _env, on) {
+			const settings = await indexingSection.load(ctx.settings);
+			if (settings.served && settings.indexnow) await (on ? serveKey(ctx, settings.key) : unserveKey(ctx, settings.key));
+		},
+		async uninstall(ctx) {
+			const settings = await indexingSection.load(ctx.settings);
+			if (settings.served) await unserveKey(ctx, settings.key);
+		},
 		async publish(ctx, _env, event) {
 			const settings = await indexingSection.load(ctx.settings);
 			if (!settings.onPublish || !anyOn(settings) || !covers(settings, event.collection)) return;

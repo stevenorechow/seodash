@@ -27,6 +27,8 @@ export interface FakeOptions {
 	http?: Array<{ match: string; status?: number; body?: unknown; headers?: Record<string, string> }>;
 	/** Storage collections to create (those of the modules under test are added by `harness`). */
 	storage?: string[];
+	/** Redirect rules already on the site. */
+	redirects?: Array<{ source: string; destination: string }>;
 }
 
 function memoryKv() {
@@ -80,6 +82,8 @@ export type FakeCtx = Ctx & {
 	scheduled: Map<string, string>;
 	items: Record<string, FakeItem[]>;
 	collection(name: string): ReturnType<typeof memoryCollection>;
+	/** EmDash's redirect rules, by id. */
+	rules: Map<string, { id: string; source: string; destination: string; type: number; groupName: string | null; rev: number }>;
 };
 
 export function fakeCtx(options: FakeOptions = {}): FakeCtx {
@@ -94,6 +98,9 @@ export function fakeCtx(options: FakeOptions = {}): FakeCtx {
 	const requests: FakeCtx["requests"] = [];
 	const emails: FakeCtx["emails"] = [];
 	const scheduled = new Map<string, string>();
+	const rules: FakeCtx["rules"] = new Map();
+	for (const [index, rule] of (options.redirects ?? []).entries()) rules.set(`r${index}`, { id: `r${index}`, ...rule, type: 301, groupName: null, rev: 1 });
+	const versioned = (rule: { rev: number }) => ({ redirect: rule, _rev: String(rule.rev) });
 	const view = (slug: string, item: FakeItem) => {
 		const info = collections.find((c) => c.slug === slug);
 		return {
@@ -115,6 +122,7 @@ export function fakeCtx(options: FakeOptions = {}): FakeCtx {
 		requests,
 		emails,
 		scheduled,
+		rules,
 		collection,
 		storage: new Proxy({}, { get: (_target, name: string) => storage.get(name) }),
 		kv: memoryKv(),
@@ -164,6 +172,24 @@ export function fakeCtx(options: FakeOptions = {}): FakeCtx {
 			get: async () => null,
 			list: async () => ({ items: [], hasMore: false }),
 			updateMetadata: async () => undefined,
+		},
+		// As in EmDash: list searches source and destination; update and delete need the current revision.
+		redirects: {
+			list: async (opts: { search?: string; limit?: number } = {}) => ({
+				items: [...rules.values()].filter((rule) => !opts.search || rule.source.includes(opts.search) || rule.destination.includes(opts.search)).slice(0, opts.limit ?? 50),
+				hasMore: false,
+			}),
+			get: async (id: string) => (rules.has(id) ? versioned(rules.get(id)!) : null),
+			create: async (input: { source: string; destination: string; type?: number; groupName?: string | null }) => {
+				if ([...rules.values()].some((rule) => rule.source === input.source)) throw new Error("A redirect with this source already exists");
+				const rule = { id: `r${rules.size + 1}-${Date.now()}`, source: input.source, destination: input.destination, type: input.type ?? 301, groupName: input.groupName ?? null, rev: 1 };
+				rules.set(rule.id, rule);
+				return versioned(rule);
+			},
+			delete: async (id: string, opts: { _rev: string }) => {
+				if (String(rules.get(id)?.rev) !== opts._rev) throw new Error("Invalid redirect revision");
+				return rules.delete(id);
+			},
 		},
 		http: {
 			fetch: async (url: string, init?: RequestInit) => {

@@ -22,7 +22,10 @@ export type FieldSpec =
 	| (Shared & { kind: "date" })
 	/** Collection slugs, ticked from a list and kept as a comma-separated string. None ticked means all. `withCollections` fills the list. */
 	| (Shared & { kind: "collections"; options?: Array<{ label: string; value: string }> })
-	/** An image, by address (or media ID where EmDash's own field holds one). */
+	/**
+	 * An image, by address. Plugins only get sign-in addresses for media library items, and Block Kit
+	 * forms do not render the media picker, so the public address is pasted (see `mediaLink`).
+	 */
 	| (Shared & { kind: "image" })
 	/** Write-only: shows whether a value is saved; an empty submission keeps it. Not part of the values object. */
 	| (Shared & { kind: "secret"; placeholder?: string });
@@ -71,8 +74,7 @@ function element(field: FieldSpec, value: unknown, savedSecrets: Record<string, 
 		case "date":
 			return { type: "date_input", ...base, ...(typeof value === "string" && value ? { initial_value: value } : {}) };
 		case "image":
-			// The host does not render its media picker inside plugin forms, so an image is an address.
-			return { type: "text_input", ...base, placeholder: "Image address, or copy one from the media library", initial_value: typeof value === "string" ? value : "" };
+			return { type: "text_input", ...base, placeholder: "Paste the address from Media (Copy URL)", initial_value: typeof value === "string" ? value : "" };
 		case "secret":
 			return { type: "secret_input", ...base, ...(field.placeholder ? { placeholder: field.placeholder } : {}), has_value: savedSecrets[field.key] === true };
 		default:
@@ -85,6 +87,10 @@ function element(field: FieldSpec, value: unknown, savedSecrets: Record<string, 
 			};
 	}
 }
+
+/** A link to the media library, to copy an image's address from, shown beside forms with an image field. */
+export const mediaLink = (siteUrl: string): Block[] =>
+	siteUrl ? [{ type: "actions", elements: [{ type: "link", label: "Open media library", target: { kind: "external", url: `${siteUrl.replace(/\/+$/, "")}/_emdash/admin/media` }, appearance: "secondary" }] }] : [];
 
 /** Fills the list of each `collections` field with the site's collections that have pages. */
 export async function withCollections(ctx: Ctx, spec: FormSpec): Promise<FormSpec> {
@@ -99,7 +105,8 @@ export function formBlock(spec: FormSpec, source: object, savedSecrets: Record<s
 	return {
 		type: "form",
 		block_id: spec.id,
-		fields: spec.fields.map((field) => element(field, values[field.key], savedSecrets)),
+		// A list with nothing to tick (a site without collections) is left out: EmDash refuses an empty one.
+		fields: spec.fields.map((field) => element(field, values[field.key], savedSecrets)).filter((field) => field.type !== "checkbox" || field.options.length > 0),
 		submit: { label: spec.submitLabel ?? "Save", action_id: spec.id },
 	};
 }

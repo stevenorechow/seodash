@@ -3,7 +3,7 @@
 //   node scripts/manifest.mjs
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { compose } from "../../dist/compose.js";
-import { MODULES } from "../../dist/modules/index.js";
+import { MODULES } from "../../dist/modules/marketplace.js";
 
 const file = new URL("../emdash-plugin.jsonc", import.meta.url);
 const built = compose(MODULES, { trusted: false });

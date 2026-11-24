@@ -134,7 +134,7 @@ export function compose(modules: Module[], options: ComposeOptions) {
 
 	// Unrestricted network access (link checks, self-hosted analytics) covers every listed host,
 	// and EmDash does not accept a host list beside it.
-	const wanted = [...new Set(modules.flatMap((module) => module.capabilities ?? []))];
+	const wanted = [...new Set(modules.flatMap((module) => [...(module.capabilities ?? []), ...(options.trusted ? [] : (module.sandboxCapabilities ?? []))]))];
 	const unrestricted = wanted.includes("network:request:unrestricted");
 	const capabilities = unrestricted ? wanted.filter((capability) => capability !== "network:request") : wanted;
 	const allowedHosts = unrestricted ? [] : [...new Set(modules.flatMap((module) => module.allowedHosts ?? []))];
@@ -219,6 +219,7 @@ export function compose(modules: Module[], options: ComposeOptions) {
 		/** EmDash removes the plugin's data when asked to, but not its scheduled jobs. */
 		uninstall: async (_event: unknown, ctx: Ctx) => {
 			for (const job of jobs) await ctx.cron?.cancel(job.name).catch(() => undefined);
+			for (const module of modules) await module.on?.uninstall?.(ctx).catch(() => undefined);
 		},
 		save: (event: { content: Record<string, unknown>; collection: string }, ctx: Ctx) => each(ctx, "save handler", (module, now) => module.on?.save?.(ctx, now, contentEvent(event))),
 		publish: (event: { content: Record<string, unknown>; collection: string }, ctx: Ctx) => each(ctx, "publish handler", (module, now) => module.on?.publish?.(ctx, now, contentEvent(event))),

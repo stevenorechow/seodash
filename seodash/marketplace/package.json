@@ -1,6 +1,6 @@
 {
   "name": "seodash-marketplace",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
@@ -28,9 +28,9 @@
     "emdash": ">=1.5.0"
   },
   "devDependencies": {
-    "@emdash-cms/plugin-cli": "0.13.6",
-    "@emdash-cms/plugin-test": "^0.2.6",
-    "emdash": "^1.5.0",
+    "@emdash-cms/plugin-cli": "0.13.7",
+    "@emdash-cms/plugin-test": "^0.2.13",
+    "emdash": "^1.6.0",
     "typescript": "^5.9.0",
     "vitest": "^4.1.0"
   }

@@ -63,7 +63,10 @@ describe("audit A3: a refused save", () => {
 		// its own state (index.js:416); only a new key makes it show the saved value again.
 		const h = harness(MODULES, { ...posts, core: null });
 		const before = walk((await h.page("/settings")).blocks as Any[]).find((block) => String(block.block_id).startsWith("indexing:settings"))!;
-		const refused = await h.submit("/settings", "indexing:settings", { indexnow: true, keyFile: false, google: false, onPublish: true, collections: [] });
+		// Refused: someone else's redirect already sits at the key file's address.
+		const { key } = (await h.ctx.settings.get<{ key: string }>("config:indexing"))!;
+		h.ctx.rules.set("other", { id: "other", source: `/${key}.txt`, destination: "/elsewhere", type: 301, groupName: null, rev: 1 });
+		const refused = await h.submit("/settings", "indexing:settings", { indexnow: true, google: false, onPublish: true, collections: [] });
 		expect(refused.toast).toMatchObject({ type: "error" });
 		const after = walk(refused.blocks as Any[]).find((block) => block.type === "form" && block.submit?.action_id === "indexing:settings")!;
 		expect(after.fields.find((field: Any) => field.action_id === "indexnow").initial_value).toBe(false);
